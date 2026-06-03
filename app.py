@@ -52,6 +52,7 @@ class UserSettings:
 
     @property
     def HostIpDisplay(self) -> str:
+        """Saved target host IPv4 used when joining as a player."""
         return self._HostIp if self._HostIp else "(not set)"
 
     def Load(self) -> None:
@@ -107,35 +108,30 @@ def _RequireUsername() -> str | None:
     return None
 
 
-def _PromptHostIp() -> str | None:
-    """Ask for the host LAN IPv4; default to saved or detected network IP."""
-    from network import GetLanIp, ParseIpv4, ResolveHostAdvertiseIp
+def _ParseTargetHostIp(Text: str) -> str | None:
+    """Validate the DM LAN IPv4 a player connects to."""
+    from network import ParseIpv4
 
+    Parsed = ParseIpv4(Text.strip())
+    if not Parsed or Parsed == "127.0.0.1":
+        return None
+    return Parsed
+
+
+def _PromptTargetHostIp() -> str | None:
+    """Ask which host IPv4 the player should connect to."""
     Settings = UserSettings.Get()
-    Default = Settings.HostIp or GetLanIp()
     IpText = AppUI.AskString(
-        "Host LAN IP",
-        "Your IPv4 on the local network.\n"
-        "Keep the detected address or enter a different LAN IP.",
-        Default,
+        "Host IP",
+        "Enter the Dungeon Master's LAN IPv4 to connect to.\nExample: 192.168.1.42",
+        Settings.HostIp,
     )
     if IpText is None:
         return None
 
-    IpText = IpText.strip()
-    if IpText:
-        Parsed = ParseIpv4(IpText)
-        if not Parsed:
-            AppUI.ShowError("Invalid IPv4 address. Example: 192.168.1.42")
-            return None
-        Resolved = Parsed
-    else:
-        Resolved = ResolveHostAdvertiseIp("")
-
-    if Resolved == "127.0.0.1":
-        AppUI.ShowError(
-            "Could not detect a LAN IP. Enter your Wi‑Fi/Ethernet IPv4 manually."
-        )
+    Resolved = _ParseTargetHostIp(IpText)
+    if not Resolved:
+        AppUI.ShowError("Invalid Host IP. Enter a LAN IPv4 like 192.168.1.42")
         return None
 
     Settings.HostIp = Resolved
@@ -155,11 +151,7 @@ class StartAsHostAction(MenuAction):
     def Execute(self) -> bool:
         from network import AUTO_PORT, CampaignHost
 
-        AdvertiseIp = _PromptHostIp()
-        if AdvertiseIp is None:
-            return True
-
-        Host = CampaignHost(AUTO_PORT, AdvertiseIp)
+        Host = CampaignHost(AUTO_PORT)
         try:
             Host.Start()
             Host.RunSession()
@@ -181,10 +173,14 @@ class StartAsPlayerAction(MenuAction):
         return "🎲"
 
     def Execute(self) -> bool:
-        from network import CampaignClient, FindRoomOnLan, ParseRoomNumber
+        from network import CampaignClient, ParseRoomNumber
 
         PlayerUsername = _RequireUsername()
         if not PlayerUsername:
+            return True
+
+        HostIp = _PromptTargetHostIp()
+        if not HostIp:
             return True
 
         RoomText = AppUI.AskString("Join Room", "Enter Room Number", "")
@@ -196,24 +192,7 @@ class StartAsPlayerAction(MenuAction):
             AppUI.ShowError("Invalid room number. Example: 54321")
             return True
 
-        State: dict[str, str | None] = {"HostIp": None}
-        CloseProgress = AppUI.ShowProgress("Searching for room on local network...")
-
-        def Search() -> None:
-            State["HostIp"] = FindRoomOnLan(RoomNumber)
-
-        def OnFound() -> None:
-            CloseProgress()
-            HostIp = State["HostIp"]
-            if not HostIp:
-                AppUI.ShowError(
-                    f"Room {RoomNumber} not found. Check the number and Wi‑Fi/LAN."
-                )
-                return
-            Client = CampaignClient(HostIp, RoomNumber, PlayerUsername)
-            Client.RunSession()
-
-        AppUI.RunInBackground(Search, OnFound)
+        CampaignClient(HostIp, RoomNumber, PlayerUsername).RunSession()
         return True
 
 
@@ -285,46 +264,32 @@ class SetUsernameAction(MenuAction):
 class SetHostIpAction(MenuAction):
     @property
     def Label(self) -> str:
-        return "Set Host IP"
+        return "Set Target Host IP"
 
     @property
     def Icon(self) -> str:
         return "🌐"
 
     def Execute(self) -> bool:
-        from network import GetLanIp, ParseIpv4, ResolveHostAdvertiseIp
-
         Current = UserSettings.Get()
-        Default = Current.HostIp or GetLanIp()
         NewIp = AppUI.AskString(
-            "Set Host IP",
+            "Target Host IP",
             f"Current: {Current.HostIpDisplay}\n\n"
-            "LAN IPv4 shown to players when you host.\n"
-            "Leave empty to use auto-detected network IP.",
-            Default,
+            "DM LAN IPv4 to connect to when joining as a player.\n"
+            "Example: 192.168.1.42",
+            Current.HostIp,
         )
         if NewIp is None:
             return True
 
-        NewIp = NewIp.strip()
-        if NewIp:
-            Parsed = ParseIpv4(NewIp)
-            if not Parsed:
-                AppUI.ShowError("Invalid IPv4 address. Example: 192.168.1.42")
-                return True
-            Resolved = Parsed
-        else:
-            Resolved = ResolveHostAdvertiseIp("")
-
-        if Resolved == "127.0.0.1":
-            AppUI.ShowError(
-                "Could not detect a LAN IP. Enter your Wi‑Fi/Ethernet IPv4 manually."
-            )
+        Resolved = _ParseTargetHostIp(NewIp)
+        if not Resolved:
+            AppUI.ShowError("Invalid Host IP. Enter a LAN IPv4 like 192.168.1.42")
             return True
 
         Current.HostIp = Resolved
         Current.Save()
-        AppUI.ShowNotice(f"Host IP saved: {Resolved}", "success")
+        AppUI.ShowNotice(f"Target Host IP saved: {Resolved}", "success")
         return True
 
 
@@ -342,7 +307,7 @@ class SettingsAction(MenuAction):
         SettingsMenu = Menu(
             "Settings",
             [SetUsernameAction(), SetHostIpAction(), BackAction()],
-            Subtitle=f"User: {Current.UsernameDisplay} · Host IP: {Current.HostIpDisplay}",
+            Subtitle=f"User: {Current.UsernameDisplay} · Target Host IP: {Current.HostIpDisplay}",
         )
         return SettingsMenu.RunUntilBack()
 

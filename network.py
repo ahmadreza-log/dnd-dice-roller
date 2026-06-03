@@ -135,21 +135,11 @@ def ParseIpv4(Text: str) -> str | None:
     return ".".join(str(Octet) for Octet in Octets)
 
 
-def ResolveHostAdvertiseIp(Configured: str = "") -> str:
-    """Use configured LAN IP when valid; otherwise detect from the network."""
-    Parsed = ParseIpv4(Configured)
-    if Parsed:
-        return Parsed
-    return GetLanIp()
-
-
-class CampaignHost:
     """TCP server: accepts players and tracks who is connected."""
 
-    def __init__(self, Port: int, AdvertiseIp: str = "") -> None:
+    def __init__(self, Port: int) -> None:
         # Port 0 lets the OS pick a free local port on the LAN.
         self._Port = Port
-        self._AdvertiseIp = AdvertiseIp.strip()
         self._LanIp = ""
         self._HostUsername = DM_DISPLAY_NAME
         self._ServerSocket: socket.socket | None = None
@@ -171,7 +161,7 @@ class CampaignHost:
 
     @property
     def LanIp(self) -> str:
-        return self._LanIp or self._AdvertiseIp or GetLanIp()
+        return self._LanIp or GetLanIp()
 
     @property
     def PlayerCount(self) -> int:
@@ -344,7 +334,7 @@ class CampaignHost:
 
     def Start(self) -> None:
         """Bind to a free port on the LAN and listen for players."""
-        self._LanIp = ResolveHostAdvertiseIp(self._AdvertiseIp)
+        self._LanIp = GetLanIp()
         self._ServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._ServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._ServerSocket.bind(("0.0.0.0", self._Port))
@@ -360,7 +350,7 @@ class CampaignHost:
             self._HostUsername,
         )
         self._Discovery.Start()
-        self._Log(f"Room is open at {self._LanIp}:{self._Port} on your local network.")
+        self._Log("Room is open on your local network.")
 
     def Stop(self) -> None:
         """Shut down the server and disconnect all players."""
@@ -394,10 +384,7 @@ class CampaignHost:
         from ui import AppUI
 
         RoomText = str(self.RoomNumber)
-        HeaderLines = [
-            f"Host IP: {self.LanIp}",
-            f"Room Number: {RoomText}",
-        ]
+        HeaderLines = [f"Room Number: {RoomText}"]
 
         AppUI.OpenChatWindow(
             Title="Campaign Host Chat",

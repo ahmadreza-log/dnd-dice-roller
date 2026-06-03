@@ -3,7 +3,7 @@
 A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). Host a campaign as the Dungeon Master, let players join with a room number, chat in real time, and roll polyhedral dice together — no Python required for the Windows `.exe` build.
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1.0-orange.svg)
+![Version](https://img.shields.io/badge/version-1.1.1-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -12,14 +12,13 @@ A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). H
 ## Features
 
 - **LAN campaigns** — Host and players on the same Wi‑Fi / local network
-- **Room discovery** — Players join with a room number; UDP discovery finds the host automatically
+- **Player target Host IP** — Clients enter the DM's LAN IPv4 when joining
 - **Campaign chat** — Live messages with Telegram-style rounded bubbles
 - **Per-player colors** — Each adventurer gets a unique bubble color when they join
 - **Dice roller** — D4, D6, D8, D10, D12, D20, and D100 from the chat window
 - **Rich roll display** — Large readable values, totals, Nat 20 / Nat 1 highlights
 - **Private DM rolls** — Dungeon Master dice rolls are visible only to the host
-- **Host LAN IP** — Confirm or set your IPv4 when hosting; shown in chat for players
-- **Username & host IP settings** — Saved locally in `settings.json`
+- **Username & target Host IP settings** — Saved locally in `settings.json`
 - **Standalone Windows exe** — Built with PyInstaller; no Python install needed for end users
 
 ---
@@ -28,8 +27,8 @@ A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). H
 
 1. Download **`DND-Dice-Roller.exe`** from the [Releases](https://github.com/ahmadreza-log/dnd-dice-roller/releases) page.
 2. Run the file (allow through Windows Firewall if prompted for LAN play).
-3. **Host:** `Start` → `As Host` → confirm **Host IP** → share **Host IP** and **Room Number** with players.
-4. **Player:** `Settings` → set your username → `Start` → `As Player` → enter the room number.
+3. **Host:** `Start` → `As Host` → share the **Room Number** with players (share your LAN IP separately).
+4. **Player:** `Settings` → set username → `Start` → `As Player` → enter **Host IP**, then **Room Number**.
 
 > Host and all players must be on the **same local network**.
 
@@ -62,17 +61,17 @@ python main.py
 ### Dungeon Master (Host)
 
 1. Open the app and choose **Start → As Host**.
-2. Confirm or enter your **Host LAN IP** (auto-detected if empty).
-3. Share **Host IP** and **Room Number** from the chat header with players.
-4. Use chat and dice buttons during the session.
-5. Your **dice rolls stay private** — only you see them; chat messages are public.
+2. Share the **Room Number** from the chat header with players (tell them your LAN IP separately, e.g. via `ipconfig`).
+3. Use chat and dice buttons during the session.
+4. Your **dice rolls stay private** — only you see them; chat messages are public.
 
 ### Player
 
-1. Set a username under **Settings → Set Username** (optional: **Set Host IP** if you plan to host later).
-2. Choose **Start → As Player**.
-3. Enter the host’s **Room Number**.
-4. Wait for discovery to find the room, then chat and roll dice.
+1. Set a username under **Settings → Set Username**.
+2. Optionally set **Settings → Set Target Host IP** (default when joining).
+3. Choose **Start → As Player**.
+4. Enter the **Host IP** (DM's LAN IPv4), then the **Room Number**.
+5. Chat and roll dice.
 
 ### Dice in chat
 
@@ -114,13 +113,13 @@ Output: `dist\DND-Dice-Roller.exe` (~18 MB, single file, no console window).
 | Port | Protocol | Use |
 |------|----------|-----|
 | Room number (dynamic) | TCP | Campaign chat and dice messages |
-| `5554` | UDP | Room discovery (`FIND_ROOM` / `ROOM_REPLY`) |
+| `5554` | UDP | Room advertisement while hosting (optional) |
 
-If players cannot find a room:
+If a player cannot connect:
 
+- Confirm **Host IP** and **Room Number** with the DM.
 - Confirm everyone is on the same LAN / Wi‑Fi.
 - Check Windows Firewall allows the app on private networks.
-- Verify the room number with the host.
 
 ---
 
@@ -131,9 +130,11 @@ User settings are stored next to the app:
 ```json
 {
   "Username": "YourName",
-  "HostIp": ""
+  "HostIp": "192.168.1.42"
 }
 ```
+
+`HostIp` is the **target DM address** saved for joining as a player.
 
 `settings.json` is created automatically and is listed in `.gitignore`.
 

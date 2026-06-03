@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-06-03
+
+Fix host/player IP flow — players choose the target host IP to connect to.
+
+### Fixed
+
+- Removed Host IP prompt when starting as Host (regression from v1.1.0)
+- Host session again only shares the **Room Number**; no IP configuration on the DM side
+
+### Added
+
+- **Host IP prompt for players** when joining — enter the DM's LAN IPv4, then the room number
+- **Settings → Set Target Host IP** — save the default host address for player connections
+
+### Changed
+
+- Player join connects directly to `Host IP` + room number (no UDP room search on join)
+- Settings `HostIp` field is the **client target host IP**, not the DM's advertised address
+
 ## [1.1.0] - 2026-06-03
 
 Cleaner codebase, explicit host LAN IP, and simplified dependencies.
@@ -53,5 +72,6 @@ First stable release — LAN D&D dice roller with campaign chat.
 - Replaced plain text chat log with scrollable bubble feed
 - Structured dice wire format (`🎲ROLL|…`) for cross-client rendering
 
+[1.1.1]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.0.0
