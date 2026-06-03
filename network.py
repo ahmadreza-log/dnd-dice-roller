@@ -377,6 +377,7 @@ class CampaignHost:
             OnLeave=self.Stop,
             ShouldContinue=lambda: self._Running,
             ShowLocalEcho=False,
+            PrivateDiceRolls=True,
         )
 
 

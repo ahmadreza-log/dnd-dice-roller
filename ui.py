@@ -252,6 +252,7 @@ class AppUI:
         OnLeave: Callable[[], None] | None = None,
         ShouldContinue: Callable[[], bool] | None = None,
         ShowLocalEcho: bool = True,
+        PrivateDiceRolls: bool = False,
     ) -> None:
         from chat import CampaignChatWindow
 
@@ -265,4 +266,5 @@ class AppUI:
             OnLeave=OnLeave,
             ShouldContinue=ShouldContinue,
             ShowLocalEcho=ShowLocalEcho,
+            PrivateDiceRolls=PrivateDiceRolls,
         ).Run()

@@ -1,24 +1,17 @@
 import queue
-import tkinter as tk
 from collections.abc import Callable
 from dataclasses import dataclass
 
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import BOTH, E, END, EW, NSEW, NS, W, X
+from ttkbootstrap.constants import BOTH, E, END, EW, NSEW, W, X
 
-from dice import DICE_TYPES, MAX_DICE_PER_ROLL, DiceRoller
+from chat_bubbles import ChatBubbleFeed
+from dice import DICE_TYPES, MAX_DICE_PER_ROLL, DiceRollResult, DiceRoller
+from network import JOIN_ANNOUNCEMENT_SUFFIX
 from gui_theme import (
-    BG_CHAT_LOG,
     BOOT_CHAT_META,
     BOOT_CHAT_TITLE,
     BOOT_CHAT_USER,
-    COLOR_CHAT,
-    COLOR_ERROR,
-    COLOR_JOIN,
-    COLOR_LEAVE,
-    COLOR_SYSTEM,
-    FG_CHAT_DEFAULT,
-    FONT_CHAT,
     FONT_CHAT_HEADER,
     FONT_UI,
     FONT_UI_BOLD,
@@ -31,6 +24,8 @@ class ChatLine:
 
     Kind: str
     Body: str
+    Roll: DiceRollResult | None = None
+    Username: str = ""
 
 
 class CampaignChatWindow:
@@ -49,6 +44,7 @@ class CampaignChatWindow:
         OnLeave: Callable[[], None] | None = None,
         ShouldContinue: Callable[[], bool] | None = None,
         ShowLocalEcho: bool = True,
+        PrivateDiceRolls: bool = False,
     ) -> None:
         self._Parent = Parent
         self._Title = Title
@@ -59,25 +55,57 @@ class CampaignChatWindow:
         self._OnLeave = OnLeave
         self._ShouldContinue = ShouldContinue
         self._ShowLocalEcho = ShowLocalEcho
+        self._PrivateDiceRolls = PrivateDiceRolls
         self._Lines: list[ChatLine] = []
         self._RenderedCount = 0
         self._Window: ttk.Toplevel | None = None
-        self._Log: tk.Text | None = None
+        self._Feed: ChatBubbleFeed | None = None
         self._Entry: ttk.Entry | None = None
 
-    def _ClassifyIncoming(self, Raw: str) -> tuple[str, str]:
+    def _ParseBracketChat(self, Text: str) -> ChatLine | None:
+        if not Text.startswith("[") or "]" not in Text:
+            return None
+
+        BracketEnd = Text.index("]")
+        Username = Text[1:BracketEnd].strip()
+        Body = Text[BracketEnd + 1 :].strip()
+        if not Username:
+            return None
+
+        return ChatLine("chat", Body, Username=Username)
+
+    def _ParseJoinUsername(self, Text: str) -> str:
+        Marker = f": {JOIN_ANNOUNCEMENT_SUFFIX}"
+        if Marker in Text:
+            return Text.split(":", 1)[0].strip()
+        return ""
+
+    def _ParseLeaveUsername(self, Text: str) -> str:
+        Suffix = " left the campaign."
+        if Text.endswith(Suffix):
+            return Text[: -len(Suffix)].strip()
+        return ""
+
+    def _ClassifyIncoming(self, Raw: str) -> ChatLine:
         Text = Raw.strip()
         Lower = Text.lower()
 
+        ParsedRoll = DiceRoller.ParseBracketedMessage(Text)
+        if ParsedRoll is not None:
+            Username, Roll = ParsedRoll
+            return ChatLine("dice_roll", "", Roll=Roll, Username=Username)
+
+        ParsedChat = self._ParseBracketChat(Text)
+        if ParsedChat is not None:
+            return ParsedChat
+
         if "adventurer joined" in Lower or "player joined" in Lower:
-            return "join", Text
+            return ChatLine("join", Text, Username=self._ParseJoinUsername(Text))
         if "left the campaign" in Lower or "player left" in Lower:
-            return "leave", Text
-        if Text.startswith("[") and "]" in Text:
-            return "chat", Text
+            return ChatLine("leave", Text, Username=self._ParseLeaveUsername(Text))
         if "disconnected" in Lower or "connection lost" in Lower:
-            return "error", Text
-        return "system", Text
+            return ChatLine("error", Text)
+        return ChatLine("system", Text)
 
     def _DrainNetworkEvents(self) -> None:
         while True:
@@ -85,44 +113,31 @@ class CampaignChatWindow:
                 Raw = self._EventQueue.get_nowait()
             except queue.Empty:
                 break
-            Kind, Body = self._ClassifyIncoming(Raw)
-            self._Lines.append(ChatLine(Kind, Body))
-
-    def _FormatDisplay(self, Line: ChatLine) -> str:
-        if Line.Kind == "join":
-            return f"● {Line.Body}\n"
-        if Line.Kind == "leave":
-            return f"◌ {Line.Body}\n"
-        if Line.Kind == "error":
-            return f"! {Line.Body}\n"
-        return f"{Line.Body}\n"
-
-    def _TagForKind(self, Kind: str) -> str:
-        return {
-            "join": "join",
-            "leave": "leave",
-            "chat": "chat",
-            "error": "error",
-        }.get(Kind, "system")
+            self._Lines.append(self._ClassifyIncoming(Raw))
 
     def _AppendNewLines(self) -> None:
-        if not self._Log:
+        if not self._Feed:
             return
 
         while self._RenderedCount < len(self._Lines):
-            Line = self._Lines[self._RenderedCount]
-            Tag = self._TagForKind(Line.Kind)
-            self._Log.configure(state="normal")
-            self._Log.insert(END, self._FormatDisplay(Line), Tag)
-            self._Log.configure(state="disabled")
-            self._Log.see(END)
+            self._Feed.Append(self._Lines[self._RenderedCount])
             self._RenderedCount += 1
 
+    def _PublishDiceRoll(self, Roll: DiceRollResult, Private: bool = False) -> None:
+        if not Private:
+            self._SendMessage(DiceRoller.FormatWireMessage(Roll))
+        Kind = "private_dice_roll" if Private else "dice_roll"
+        if Private or self._ShowLocalEcho:
+            self._Lines.append(
+                ChatLine(Kind, "", Roll=Roll, Username=self._Username)
+            )
+        self._AppendNewLines()
+
     def _PublishOutgoing(self, Text: str) -> None:
-        """Send to the network; players echo locally as [Username] lines."""
+        """Send to the network; players echo locally as chat bubbles."""
         self._SendMessage(Text)
         if self._ShowLocalEcho:
-            self._Lines.append(ChatLine("chat", f"[{self._Username}] {Text}"))
+            self._Lines.append(ChatLine("chat", Text, Username=self._Username))
         self._AppendNewLines()
 
     def _PromptDiceCount(self, DiceLabel: str) -> int | None:
@@ -229,8 +244,8 @@ class CampaignChatWindow:
         if Count is None:
             return
 
-        Message = DiceRoller.RollAndFormat(DiceLabel, Sides, Count)
-        self._PublishOutgoing(Message)
+        Result = DiceRoller.RollDice(DiceLabel, Sides, Count)
+        self._PublishDiceRoll(Result, Private=self._PrivateDiceRolls)
 
     def _SendCurrent(self) -> None:
         if not self._Entry:
@@ -260,6 +275,7 @@ class CampaignChatWindow:
         if self._Window and self._Window.winfo_exists():
             self._Window.destroy()
         self._Window = None
+        self._Feed = None
 
     def _AutoSizeWindow(self) -> None:
         """Fit chat window to screen so input and send stay visible."""
@@ -336,40 +352,13 @@ class CampaignChatWindow:
             row=2, column=0, sticky=EW, padx=12, pady=(0, 4)
         )
 
-        LogFrame = ttk.Frame(Win, padding=(12, 6, 12, 6))
+        LogFrame = ttk.Frame(Win, padding=(4, 4, 4, 6))
         LogFrame.grid(row=3, column=0, sticky=NSEW)
         LogFrame.grid_rowconfigure(0, weight=1)
         LogFrame.grid_columnconfigure(0, weight=1)
 
-        Log = tk.Text(
-            LogFrame,
-            wrap="word",
-            font=FONT_CHAT,
-            state="disabled",
-            bg=BG_CHAT_LOG,
-            fg=FG_CHAT_DEFAULT,
-            insertbackground=FG_CHAT_DEFAULT,
-            selectbackground="#3d4f6f",
-            selectforeground=FG_CHAT_DEFAULT,
-            relief="flat",
-            padx=10,
-            pady=8,
-            borderwidth=0,
-            highlightthickness=1,
-            highlightbackground="#3d4658",
-            highlightcolor="#5a9fd4",
-        )
-        Scroll = ttk.Scrollbar(LogFrame, orient="vertical", command=Log.yview)
-        Log.configure(yscrollcommand=Scroll.set)
-        Log.grid(row=0, column=0, sticky=NSEW)
-        Scroll.grid(row=0, column=1, sticky=NS)
-
-        Log.tag_configure("join", foreground=COLOR_JOIN, font=FONT_UI_BOLD)
-        Log.tag_configure("leave", foreground=COLOR_LEAVE)
-        Log.tag_configure("chat", foreground=COLOR_CHAT)
-        Log.tag_configure("error", foreground=COLOR_ERROR, font=FONT_UI_BOLD)
-        Log.tag_configure("system", foreground=COLOR_SYSTEM)
-        self._Log = Log
+        self._Feed = ChatBubbleFeed(LogFrame)
+        self._Feed.SetSelfUsername(self._Username)
 
         DiceRow = ttk.Frame(Win, padding=(12, 6, 12, 4))
         DiceRow.grid(row=4, column=0, sticky=EW)
