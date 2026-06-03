@@ -361,20 +361,13 @@ class CampaignHost:
         self._Log("Campaign host stopped.")
 
     def RunSession(self) -> None:
-        """Host lobby: share invite URL, then open chat until /quit."""
-        from chat import CampaignChatRoom
-        from terminal import TerminalUI
+        """Host lobby: share room number, then open chat until the window closes."""
+        from ui import AppUI
 
         RoomText = str(self.RoomNumber)
-        Copied = TerminalUI.CopyToClipboard(RoomText)
-
         HeaderLines = [f"Room Number: {RoomText}"]
-        if Copied:
-            HeaderLines.append("Room number copied — share it on your local network.")
-        else:
-            HeaderLines.append(f"Tell players to join room {RoomText}.")
 
-        ChatRoom = CampaignChatRoom(
+        AppUI.OpenChatWindow(
             Title="Campaign Host Chat",
             Username=self._HostUsername,
             EventQueue=self._EventQueue,
@@ -383,7 +376,6 @@ class CampaignHost:
             OnLeave=self.Stop,
             ShouldContinue=lambda: self._Running,
         )
-        ChatRoom.Run()
 
 
 class CampaignClient:
@@ -493,13 +485,14 @@ class CampaignClient:
             self._Socket = None
 
     def RunSession(self) -> None:
-        """Join the campaign chat room until /quit."""
-        from chat import CampaignChatRoom
+        """Join the campaign chat room until the window closes."""
+        from ui import AppUI
 
         if not self.Connect():
+            AppUI.ShowError("Could not connect to the room.")
             return
 
-        ChatRoom = CampaignChatRoom(
+        AppUI.OpenChatWindow(
             Title="Campaign Chat",
             Username=self._Username,
             EventQueue=self._EventQueue,
@@ -508,4 +501,3 @@ class CampaignClient:
             OnLeave=self._Disconnect,
             ShouldContinue=lambda: self._Running,
         )
-        ChatRoom.Run()
