@@ -85,7 +85,6 @@ python main.py
 ```powershell
 .\venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-build.txt
 
 pyinstaller --clean dnd_dice_roller.spec
 ```
@@ -96,20 +95,14 @@ Output: `dist\DND-Dice-Roller.exe` (~18 MB, single file, no console window).
 
 ## Project structure
 
-| File / folder | Purpose |
-|---------------|---------|
+| File | Purpose |
+|------|---------|
 | `main.py` | Entry point; venv auto-switch |
-| `app.py` | Application shell and menu routing |
-| `ui.py` | Main window and dialogs (ttkbootstrap) |
-| `chat.py` | Campaign chat window |
-| `chat_bubbles.py` | Telegram-style bubble rendering |
-| `player_colors.py` | Per-player color assignment |
+| `app.py` | Application, menus, actions, and user settings |
+| `ui.py` | Theme tokens, main window, dialogs |
+| `chat.py` | Campaign chat, bubble feed, and player colors |
 | `dice.py` | Dice logic and wire format |
-| `network.py` | TCP host/client and chat relay |
-| `discovery.py` | UDP room discovery on LAN |
-| `actions.py` | Menu actions (Host, Player, Settings) |
-| `settings.py` | Username persistence |
-| `gui_theme.py` | Colors, fonts, bubble theme |
+| `network.py` | TCP host/client, chat relay, UDP discovery |
 | `dnd_dice_roller.spec` | PyInstaller build spec |
 
 ---

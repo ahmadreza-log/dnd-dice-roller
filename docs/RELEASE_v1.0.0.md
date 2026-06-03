@@ -62,7 +62,7 @@ python main.py
 Build the exe:
 
 ```powershell
-pip install -r requirements-build.txt
+pip install -r requirements.txt
 pyinstaller --clean dnd_dice_roller.spec
 ```
 

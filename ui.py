@@ -1,26 +1,69 @@
-"""ttkbootstrap-based GUI: themed windows, menus, and dialogs."""
+"""ttkbootstrap GUI: theme tokens, main window, menus, and dialogs."""
 
 import threading
 import tkinter as tk
 from collections.abc import Callable
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import BOTH, BOTTOM, END, LEFT, RIGHT, TOP, W, X, Y
 from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.scrolled import ScrolledFrame
 
-from gui_theme import (
-    BOOT_FOOTER,
-    BOOT_MENU_BACK,
-    BOOT_MENU_DEFAULT,
-    BOOT_MENU_EXIT,
-    BOOT_SUBTITLE,
-    BOOT_TITLE,
-    FONT_FOOTER,
-    FONT_SUBTITLE,
-    FONT_TITLE,
-    FONT_UI,
-    THEME_NAME,
-)
+# ---------------------------------------------------------------------------
+# Theme (colors, fonts, bubble layout)
+# ---------------------------------------------------------------------------
+
+THEME_NAME = "darkly"
+
+FONT_UI = ("Segoe UI", 11)
+FONT_UI_BOLD = ("Segoe UI", 11, "bold")
+FONT_TITLE = ("Segoe UI", 22, "bold")
+FONT_SUBTITLE = ("Segoe UI", 11)
+FONT_CHAT = ("Segoe UI", 12)
+FONT_CHAT_HEADER = ("Segoe UI", 16, "bold")
+FONT_BUBBLE_NAME = ("Segoe UI", 10, "bold")
+FONT_BUBBLE_TEXT = ("Segoe UI", 12)
+FONT_BUBBLE_META = ("Segoe UI", 10, "italic")
+FONT_DICE_LABEL = ("Segoe UI", 12, "bold")
+FONT_DICE_VALUE = ("Consolas", 15, "bold")
+FONT_DICE_TOTAL = ("Consolas", 16, "bold")
+FONT_FOOTER = ("Segoe UI", 9)
+
+BG_CHAT_LOG = "#0e1621"
+FG_CHAT_DEFAULT = "#f2f4f8"
+
+BUBBLE_MAX_WIDTH = 340
+BUBBLE_RADIUS = 16
+BUBBLE_PAD_X = 14
+BUBBLE_PAD_Y = 10
+BUBBLE_ROW_PAD_Y = 4
+BUBBLE_SIDE_MARGIN = 52
+
+COLOR_BUBBLE_SYSTEM = "#1a2634"
+COLOR_BUBBLE_SYSTEM_TEXT = "#8fa3bf"
+COLOR_BUBBLE_ERROR = "#3d2228"
+COLOR_BUBBLE_ERROR_TEXT = "#ffb4b4"
+COLOR_BUBBLE_LEAVE = "#2e2a1a"
+COLOR_BUBBLE_LEAVE_TEXT = "#ffcc66"
+
+COLOR_DICE_NAT20 = "#5dffb0"
+COLOR_DICE_NAT1 = "#ff7070"
+COLOR_DICE_TOTAL = "#6ee7a8"
+COLOR_DICE_VALUE = "#ffffff"
+
+BOOT_TITLE = "light"
+BOOT_SUBTITLE = "light"
+BOOT_FOOTER = "light"
+BOOT_CHAT_TITLE = "light"
+BOOT_CHAT_USER = "info"
+BOOT_CHAT_META = "warning"
+BOOT_MENU_DEFAULT = "primary"
+BOOT_MENU_BACK = "light-outline"
+BOOT_MENU_EXIT = "danger"
+
+# ---------------------------------------------------------------------------
+# Main window
+# ---------------------------------------------------------------------------
 
 
 class AppUI:
@@ -94,7 +137,6 @@ class AppUI:
         Actions: list,
         OnAction: Callable[[object], None],
     ) -> None:
-        """Render a vertical list of menu buttons."""
         cls._OnAction = OnAction
         Root = cls.Root()
 
@@ -111,7 +153,7 @@ class AppUI:
         Scroll.pack(fill=BOTH, expand=True)
         Inner = Scroll.container
 
-        for Index, Action in enumerate(Actions):
+        for Action in Actions:
             Label = Action.Label
             if Action.Icon:
                 Label = f"{Action.Icon}  {Label}"
@@ -140,7 +182,6 @@ class AppUI:
 
     @classmethod
     def AskString(cls, Title: str, Prompt: str, Default: str = "") -> str | None:
-        """Modal string input; None if cancelled."""
         Root = cls.Root()
         Dialog = ttk.Toplevel(Root)
         Dialog.title(Title)
@@ -185,10 +226,7 @@ class AppUI:
 
     @classmethod
     def ShowNotice(cls, Message: str, Bootstyle: str = "info") -> None:
-        if Bootstyle == "success":
-            Messagebox.show_info(Message, title="Notice", parent=cls.Root())
-        else:
-            Messagebox.show_info(Message, title="Notice", parent=cls.Root())
+        Messagebox.show_info(Message, title="Notice", parent=cls.Root())
 
     @classmethod
     def ShowError(cls, Message: str) -> None:
@@ -196,7 +234,6 @@ class AppUI:
 
     @classmethod
     def ShowProgress(cls, Message: str) -> Callable[[], None]:
-        """Show a small busy dialog; call the returned function to close it."""
         Root = cls.Root()
         Dialog = ttk.Toplevel(Root)
         Dialog.title("Please wait")

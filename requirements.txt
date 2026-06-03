@@ -1,1 +1,5 @@
+# Runtime
 ttkbootstrap>=1.10.1
+
+# Build (Windows exe via PyInstaller)
+pyinstaller>=6.0

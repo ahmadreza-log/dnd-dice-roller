@@ -114,12 +114,42 @@ def GetLanIp() -> str:
         Probe.close()
 
 
+def ParseIpv4(Text: str) -> str | None:
+    """Return normalized IPv4 text, or None if invalid."""
+    Text = Text.strip()
+    if not Text:
+        return None
+
+    Parts = Text.split(".")
+    if len(Parts) != 4:
+        return None
+
+    try:
+        Octets = [int(Part) for Part in Parts]
+    except ValueError:
+        return None
+
+    if any(Octet < 0 or Octet > 255 for Octet in Octets):
+        return None
+
+    return ".".join(str(Octet) for Octet in Octets)
+
+
+def ResolveHostAdvertiseIp(Configured: str = "") -> str:
+    """Use configured LAN IP when valid; otherwise detect from the network."""
+    Parsed = ParseIpv4(Configured)
+    if Parsed:
+        return Parsed
+    return GetLanIp()
+
+
 class CampaignHost:
     """TCP server: accepts players and tracks who is connected."""
 
-    def __init__(self, Port: int) -> None:
+    def __init__(self, Port: int, AdvertiseIp: str = "") -> None:
         # Port 0 lets the OS pick a free local port on the LAN.
         self._Port = Port
+        self._AdvertiseIp = AdvertiseIp.strip()
         self._LanIp = ""
         self._HostUsername = DM_DISPLAY_NAME
         self._ServerSocket: socket.socket | None = None
@@ -141,7 +171,7 @@ class CampaignHost:
 
     @property
     def LanIp(self) -> str:
-        return self._LanIp or GetLanIp()
+        return self._LanIp or self._AdvertiseIp or GetLanIp()
 
     @property
     def PlayerCount(self) -> int:
@@ -314,7 +344,7 @@ class CampaignHost:
 
     def Start(self) -> None:
         """Bind to a free port on the LAN and listen for players."""
-        self._LanIp = GetLanIp()
+        self._LanIp = ResolveHostAdvertiseIp(self._AdvertiseIp)
         self._ServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._ServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._ServerSocket.bind(("0.0.0.0", self._Port))
@@ -324,15 +354,13 @@ class CampaignHost:
         self._AcceptThread = threading.Thread(target=self._AcceptLoop, daemon=True)
         self._AcceptThread.start()
 
-        from discovery import RoomDiscoveryHost
-
         self._Discovery = RoomDiscoveryHost(
             self._Port,
             self._LanIp,
             self._HostUsername,
         )
         self._Discovery.Start()
-        self._Log("Room is open on your local network.")
+        self._Log(f"Room is open at {self._LanIp}:{self._Port} on your local network.")
 
     def Stop(self) -> None:
         """Shut down the server and disconnect all players."""
@@ -366,7 +394,10 @@ class CampaignHost:
         from ui import AppUI
 
         RoomText = str(self.RoomNumber)
-        HeaderLines = [f"Room Number: {RoomText}"]
+        HeaderLines = [
+            f"Host IP: {self.LanIp}",
+            f"Room Number: {RoomText}",
+        ]
 
         AppUI.OpenChatWindow(
             Title="Campaign Host Chat",
@@ -500,7 +531,138 @@ class CampaignClient:
             Username=self._Username,
             EventQueue=self._EventQueue,
             SendMessage=self.SendChat,
-            HeaderLines=[f"Room Number: {self._Port}"],
+            HeaderLines=[
+                f"Host IP: {self._HostIp}",
+                f"Room Number: {self._Port}",
+            ],
             OnLeave=self._Disconnect,
             ShouldContinue=lambda: self._Running,
         )
+
+
+# ---------------------------------------------------------------------------
+# UDP room discovery
+# ---------------------------------------------------------------------------
+
+DISCOVERY_PORT = 5554
+BROADCAST_ADDRESS = "<broadcast>"
+
+
+def _EnableBroadcast(Socket: socket.socket) -> None:
+    Socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    Socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+
+def ParseRoomNumber(Text: str) -> int | None:
+    """Room number is the campaign TCP port (digits only)."""
+    Raw = Text.strip()
+    if not Raw.isdigit():
+        return None
+    Room = int(Raw)
+    if Room < 1 or Room > 65535:
+        return None
+    return Room
+
+
+class RoomDiscoveryHost:
+    """UDP listener: answers room lookups on the local network."""
+
+    def __init__(self, RoomNumber: int, HostIp: str, HostUsername: str) -> None:
+        self._RoomNumber = RoomNumber
+        self._HostIp = HostIp
+        self._HostUsername = HostUsername
+        self._Socket: socket.socket | None = None
+        self._Running = False
+        self._Thread: threading.Thread | None = None
+
+    def Start(self) -> None:
+        self._Socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        _EnableBroadcast(self._Socket)
+        self._Socket.bind(("", DISCOVERY_PORT))
+        self._Running = True
+        self._Thread = threading.Thread(target=self._Serve, daemon=True)
+        self._Thread.start()
+
+    def _Reply(self, Address: tuple[str, int]) -> None:
+        if not self._Socket:
+            return
+        Payload = {
+            "Type": "ROOM_REPLY",
+            "Room": self._RoomNumber,
+            "HostIp": self._HostIp,
+            "Port": self._RoomNumber,
+            "Host": self._HostUsername,
+        }
+        try:
+            self._Socket.sendto(json.dumps(Payload).encode(ENCODING), Address)
+        except OSError:
+            pass
+
+    def _Serve(self) -> None:
+        assert self._Socket is not None
+        self._Socket.settimeout(1.0)
+
+        while self._Running:
+            try:
+                Data, Address = self._Socket.recvfrom(4096)
+            except TimeoutError:
+                continue
+            except OSError:
+                break
+
+            try:
+                Message = json.loads(Data.decode(ENCODING))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            if Message.get("Type") != "FIND_ROOM":
+                continue
+            if int(Message.get("Room", -1)) != self._RoomNumber:
+                continue
+
+            self._Reply(Address)
+
+    def Stop(self) -> None:
+        self._Running = False
+        if self._Socket:
+            try:
+                self._Socket.close()
+            except OSError:
+                pass
+            self._Socket = None
+
+
+def FindRoomOnLan(RoomNumber: int, Timeout: float = 3.0) -> str | None:
+    """Broadcast a room lookup and return the host IPv4 address, if found."""
+    Query = json.dumps({"Type": "FIND_ROOM", "Room": RoomNumber}).encode(ENCODING)
+    Socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    _EnableBroadcast(Socket)
+    Socket.settimeout(Timeout)
+
+    try:
+        Socket.sendto(Query, (BROADCAST_ADDRESS, DISCOVERY_PORT))
+        while True:
+            try:
+                Data, _ = Socket.recvfrom(4096)
+            except TimeoutError:
+                return None
+
+            try:
+                Message: dict[str, Any] = json.loads(Data.decode(ENCODING))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            if Message.get("Type") != "ROOM_REPLY":
+                continue
+            if int(Message.get("Room", -1)) != RoomNumber:
+                continue
+
+            HostIp = str(Message.get("HostIp", "")).strip()
+            if HostIp:
+                return HostIp
+    except OSError:
+        return None
+    finally:
+        Socket.close()
+
+    return None
