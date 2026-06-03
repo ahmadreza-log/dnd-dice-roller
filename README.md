@@ -3,7 +3,7 @@
 A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). Host a campaign as the Dungeon Master, let players join with a room number, chat in real time, and roll polyhedral dice together — no Python required for the Windows `.exe` build.
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1.1-orange.svg)
+![Version](https://img.shields.io/badge/version-1.1.2-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 

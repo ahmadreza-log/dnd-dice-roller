@@ -135,6 +135,7 @@ def ParseIpv4(Text: str) -> str | None:
     return ".".join(str(Octet) for Octet in Octets)
 
 
+class CampaignHost:
     """TCP server: accepts players and tracks who is connected."""
 
     def __init__(self, Port: int) -> None:
