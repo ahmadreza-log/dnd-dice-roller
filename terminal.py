@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import time
 
@@ -110,3 +111,33 @@ class TerminalUI:
     @classmethod
     def PrintCancelled(cls) -> None:
         questionary.print("  Cancelled.", style="fg:#888888 italic")
+
+    @classmethod
+    def CopyToClipboard(cls, Text: str) -> bool:
+        """Copy text to the system clipboard (Windows / macOS / Linux)."""
+        try:
+            if sys.platform == "win32":
+                Safe = Text.replace("'", "''")
+                subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f"Set-Clipboard -Value '{Safe}'",
+                    ],
+                    check=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                return True
+            if sys.platform == "darwin":
+                subprocess.run(["pbcopy"], input=Text, text=True, check=True)
+                return True
+            subprocess.run(
+                ["xclip", "-selection", "clipboard"],
+                input=Text,
+                text=True,
+                check=True,
+            )
+            return True
+        except (OSError, subprocess.CalledProcessError):
+            return False
