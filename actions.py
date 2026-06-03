@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+import questionary
+
 from terminal import TerminalUI
 
 
@@ -105,8 +107,47 @@ class StartAction(MenuAction):
         return RoleMenu.RunUntilBack()
 
 
+class SetUsernameAction(MenuAction):
+    """Prompt for and save the player's display name."""
+
+    @property
+    def Label(self) -> str:
+        return "Set Username"
+
+    @property
+    def Icon(self) -> str:
+        return "👤"
+
+    def Execute(self) -> bool:
+        from settings import UserSettings
+
+        Current = UserSettings.Get()
+        TerminalUI.Clear()
+        questionary.print("")
+        questionary.print("  Set Username", style="bold fg:magenta")
+        questionary.print(
+            f"  Current: {Current.UsernameDisplay}",
+            style="fg:#888888 italic",
+        )
+        questionary.print("")
+
+        NewName = TerminalUI.AskText("Enter your username", Current.Username)
+        if NewName is None:
+            return True
+
+        NewName = NewName.strip()
+        if not NewName:
+            TerminalUI.ShowNotice("Username cannot be empty.", "red")
+            return True
+
+        Current.Username = NewName
+        Current.Save()
+        TerminalUI.ShowNotice(f"Username saved: {NewName}", "green")
+        return True
+
+
 class SettingsAction(MenuAction):
-    """Application preferences (planned)."""
+    """Application preferences submenu."""
 
     @property
     def Label(self) -> str:
@@ -117,8 +158,19 @@ class SettingsAction(MenuAction):
         return "⚙️"
 
     def Execute(self) -> bool:
-        TerminalUI.ShowNotice("Settings... (coming soon)", "magenta")
-        return True
+        from menu import Menu
+        from settings import UserSettings
+
+        Current = UserSettings.Get()
+        SettingsMenu = Menu(
+            "Settings",
+            [
+                SetUsernameAction(),
+                BackAction(),
+            ],
+            Subtitle=f"User: {Current.UsernameDisplay}",
+        )
+        return SettingsMenu.RunUntilBack()
 
 
 class ExitAction(MenuAction):

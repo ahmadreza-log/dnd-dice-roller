@@ -61,6 +61,16 @@ class TerminalUI:
         questionary.print("")
 
     @classmethod
+    def AskText(cls, Question: str, Default: str = "") -> str | None:
+        """Text input prompt; returns None if cancelled."""
+        return questionary.text(
+            Question,
+            default=Default,
+            style=cls.GetStyle(),
+            qmark=">",
+        ).ask()
+
+    @classmethod
     def SelectAction(cls, Question: str, Actions: list) -> object | None:
         """Arrow-key menu; returns the chosen action object, or None on cancel."""
         Choices = []
