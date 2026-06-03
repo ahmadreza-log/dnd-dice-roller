@@ -3,6 +3,7 @@
 A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). Host a campaign as the Dungeon Master, let players join with a room number, chat in real time, and roll polyhedral dice together — no Python required for the Windows `.exe` build.
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -17,7 +18,8 @@ A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). H
 - **Dice roller** — D4, D6, D8, D10, D12, D20, and D100 from the chat window
 - **Rich roll display** — Large readable values, totals, Nat 20 / Nat 1 highlights
 - **Private DM rolls** — Dungeon Master dice rolls are visible only to the host
-- **Username settings** — Saved locally in `settings.json`
+- **Host LAN IP** — Confirm or set your IPv4 when hosting; shown in chat for players
+- **Username & host IP settings** — Saved locally in `settings.json`
 - **Standalone Windows exe** — Built with PyInstaller; no Python install needed for end users
 
 ---
@@ -26,7 +28,7 @@ A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). H
 
 1. Download **`DND-Dice-Roller.exe`** from the [Releases](https://github.com/ahmadreza-log/dnd-dice-roller/releases) page.
 2. Run the file (allow through Windows Firewall if prompted for LAN play).
-3. **Host:** `Start` → `As Host` → share the **Room Number** with players.
+3. **Host:** `Start` → `As Host` → confirm **Host IP** → share **Host IP** and **Room Number** with players.
 4. **Player:** `Settings` → set your username → `Start` → `As Player` → enter the room number.
 
 > Host and all players must be on the **same local network**.
@@ -60,14 +62,14 @@ python main.py
 ### Dungeon Master (Host)
 
 1. Open the app and choose **Start → As Host**.
-2. Note the **Room Number** shown in chat (this is the TCP port on your LAN).
-3. Tell players the room number (voice, chat, etc.).
+2. Confirm or enter your **Host LAN IP** (auto-detected if empty).
+3. Share **Host IP** and **Room Number** from the chat header with players.
 4. Use chat and dice buttons during the session.
 5. Your **dice rolls stay private** — only you see them; chat messages are public.
 
 ### Player
 
-1. Set a username under **Settings → Set Username**.
+1. Set a username under **Settings → Set Username** (optional: **Set Host IP** if you plan to host later).
 2. Choose **Start → As Player**.
 3. Enter the host’s **Room Number**.
 4. Wait for discovery to find the room, then chat and roll dice.

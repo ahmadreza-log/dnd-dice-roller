@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-03
+
+Cleaner codebase, explicit host LAN IP, and simplified dependencies.
+
+### Added
+
+- **Host LAN IP** prompt when starting as Host (default: saved or auto-detected network IP)
+- **Settings → Set Host IP** to configure the advertised IPv4 before hosting
+- **Host IP** shown in campaign chat headers (host and players)
+- IPv4 validation (`ParseIpv4`) with fallback to detected LAN address
+
+### Changed
+
+- Consolidated Python modules from 13 files to **6** (`app`, `ui`, `chat`, `network`, `dice`, `main`)
+- Merged theme into `ui.py`, chat bubbles/colors into `chat.py`, discovery into `network.py`
+- Single **`requirements.txt`** for runtime and PyInstaller build
+- README project structure and build instructions updated
+
+### Removed
+
+- Standalone modules: `actions.py`, `menu.py`, `settings.py`, `gui_theme.py`, `discovery.py`, `chat_bubbles.py`, `player_colors.py`
+- `requirements-build.txt` (merged into `requirements.txt`)
+
 ## [1.0.0] - 2026-06-03
 
 First stable release — LAN D&D dice roller with campaign chat.
@@ -30,4 +53,5 @@ First stable release — LAN D&D dice roller with campaign chat.
 - Replaced plain text chat log with scrollable bubble feed
 - Structured dice wire format (`🎲ROLL|…`) for cross-client rendering
 
+[1.1.0]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.0.0
