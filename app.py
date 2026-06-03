@@ -4,6 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from paths import GetSettingsPath, MigrateLegacySettings
 from ui import AppUI
 
 
@@ -13,7 +14,7 @@ from ui import AppUI
 
 
 class UserSettings:
-    """Persistent user preferences stored in settings.json."""
+    """Persistent user preferences stored under the per-user AppData folder."""
 
     _Instance: "UserSettings | None" = None
 
@@ -26,8 +27,10 @@ class UserSettings:
     @classmethod
     def Get(cls) -> "UserSettings":
         if cls._Instance is None:
-            ProjectRoot = Path(__file__).resolve().parent
-            cls._Instance = cls(ProjectRoot / "settings.json")
+            LegacyPath = Path(__file__).resolve().parent / "settings.json"
+            SettingsPath = GetSettingsPath()
+            MigrateLegacySettings(LegacyPath, SettingsPath)
+            cls._Instance = cls(SettingsPath)
         return cls._Instance
 
     @property
@@ -68,6 +71,7 @@ class UserSettings:
 
     def Save(self) -> None:
         Data = {"Username": self._Username, "HostIp": self._HostIp}
+        self._FilePath.parent.mkdir(parents=True, exist_ok=True)
         self._FilePath.write_text(
             json.dumps(Data, indent=2, ensure_ascii=False),
             encoding="utf-8",

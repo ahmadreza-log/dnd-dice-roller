@@ -290,6 +290,7 @@ class AppUI:
         ShouldContinue: Callable[[], bool] | None = None,
         ShowLocalEcho: bool = True,
         PrivateDiceRolls: bool = False,
+        SendWhisper: Callable[[str], None] | None = None,
     ) -> None:
         from chat import CampaignChatWindow
 
@@ -304,4 +305,5 @@ class AppUI:
             ShouldContinue=ShouldContinue,
             ShowLocalEcho=ShowLocalEcho,
             PrivateDiceRolls=PrivateDiceRolls,
+            SendWhisper=SendWhisper,
         ).Run()

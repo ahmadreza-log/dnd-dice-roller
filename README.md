@@ -3,7 +3,7 @@
 A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). Host a campaign as the Dungeon Master, let players join with a room number, chat in real time, and roll polyhedral dice together — no Python required for the Windows `.exe` build.
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1.2-orange.svg)
+![Version](https://img.shields.io/badge/version-1.2.0-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -18,7 +18,9 @@ A desktop app for **Dungeons & Dragons** sessions on your local network (LAN). H
 - **Dice roller** — D4, D6, D8, D10, D12, D20, and D100 from the chat window
 - **Rich roll display** — Large readable values, totals, Nat 20 / Nat 1 highlights
 - **Private DM rolls** — Dungeon Master dice rolls are visible only to the host
-- **Username & target Host IP settings** — Saved locally in `settings.json`
+- **Whisper to DM** — Players send private messages via `/dm` or the **Whisper DM** button
+- **Room log** — Timestamped session activity viewer from the campaign chat window
+- **Username & target Host IP settings** — Saved locally under `%LOCALAPPDATA%\DND-Dice-Roller`
 - **Standalone Windows exe** — Built with PyInstaller; no Python install needed for end users
 
 ---
@@ -98,6 +100,7 @@ Output: `dist\DND-Dice-Roller.exe` (~18 MB, single file, no console window).
 
 | File | Purpose |
 |------|---------|
+| `paths.py` | AppData directory and settings file paths |
 | `main.py` | Entry point; venv auto-switch |
 | `app.py` | Application, menus, actions, and user settings |
 | `ui.py` | Theme tokens, main window, dialogs |
@@ -125,7 +128,13 @@ If a player cannot connect:
 
 ## Configuration
 
-User settings are stored next to the app:
+User settings are stored in the per-user AppData folder:
+
+`%LOCALAPPDATA%\DND-Dice-Roller\settings.json`
+
+Example (Windows):
+
+`C:\Users\<You>\AppData\Local\DND-Dice-Roller\settings.json`
 
 ```json
 {
@@ -136,7 +145,7 @@ User settings are stored next to the app:
 
 `HostIp` is the **target DM address** saved for joining as a player.
 
-`settings.json` is created automatically and is listed in `.gitignore`.
+On first run after this change, an older `settings.json` next to the app or `.exe` is copied automatically if present.
 
 ---
 

@@ -57,6 +57,22 @@ class DiceRoller:
         )
 
     @staticmethod
+    def FormatLogLine(
+        Username: str,
+        Result: DiceRollResult,
+        Private: bool = False,
+    ) -> str:
+        """Plain-text line for the room session log."""
+        RollsText = ", ".join(str(Value) for Value in Result.Rolls)
+        Line = (
+            f"[{Username}] rolled {Result.Count}{Result.DiceLabel}: "
+            f"{RollsText} = {Result.Total}"
+        )
+        if Private:
+            Line += " (private)"
+        return Line
+
+    @staticmethod
     def ParseWireMessage(Text: str) -> DiceRollResult | None:
         Text = Text.strip()
         if not Text.startswith(ROLL_WIRE_PREFIX):

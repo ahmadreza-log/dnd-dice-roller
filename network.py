@@ -8,6 +8,7 @@ from typing import Any
 DEFAULT_PORT = 5555
 ENCODING = "utf-8"
 JOIN_ANNOUNCEMENT_SUFFIX = "Adventurer Joined To Campaign"
+WHISPER_LOG_PREFIX = "WHISPER|"
 URL_SCHEME = "dnd"
 AUTO_PORT = 0
 DM_DISPLAY_NAME = "Dungeon Master"
@@ -20,6 +21,11 @@ class NetworkProtocol:
     def BuildJoinAnnouncement(Username: str) -> str:
         """Campaign-wide text when a new adventurer connects."""
         return f"{Username}: {JOIN_ANNOUNCEMENT_SUFFIX}"
+
+    @staticmethod
+    def BuildWhisperLogLine(Username: str, Text: str) -> str:
+        """Host-only event queue line for a private player → DM message."""
+        return f"{WHISPER_LOG_PREFIX}[{Username.strip()}] {Text.strip()}"
 
     @staticmethod
     def Encode(Message: dict[str, Any]) -> bytes:
@@ -223,12 +229,23 @@ class CampaignHost:
         self._Broadcast(Payload, Skip=Skip)
         self._LogChat(Username, Text)
 
+    def _RelayWhisper(self, Username: str, Text: str) -> None:
+        """Show a private player message on the host screen only."""
+        Text = Text.strip()
+        if not Text:
+            return
+        self._Log(NetworkProtocol.BuildWhisperLogLine(Username, Text))
+
     def _HandlePlayerMessage(self, Player: ConnectedPlayer, Message: dict[str, Any]) -> None:
         MsgType = Message.get("Type")
         if MsgType == "CHAT":
             Username = str(Message.get("Username", Player.Username)).strip() or Player.Username
             Text = str(Message.get("Text", ""))
             self._RelayChat(Username, Text, Skip=Player)
+        elif MsgType == "WHISPER":
+            Username = str(Message.get("Username", Player.Username)).strip() or Player.Username
+            Text = str(Message.get("Text", ""))
+            self._RelayWhisper(Username, Text)
         elif MsgType == "PING":
             self._Send(Player, {"Type": "PONG"})
 
@@ -497,6 +514,22 @@ class CampaignClient:
             self._Log("Connection lost.")
             self._Running = False
 
+    def SendWhisper(self, Text: str) -> None:
+        """Send a private message to the DM (host only)."""
+        if not self._Socket or not self._Running:
+            return
+        Text = Text.strip()
+        if not Text:
+            return
+        try:
+            Message = {"Type": "WHISPER", "Username": self._Username, "Text": Text}
+            Payload = NetworkProtocol.Encode(Message)
+            with self._SendLock:
+                self._Socket.sendall(Payload)
+        except OSError:
+            self._Log("Connection lost.")
+            self._Running = False
+
     def _Disconnect(self) -> None:
         self._Running = False
         if self._Socket:
@@ -519,6 +552,7 @@ class CampaignClient:
             Username=self._Username,
             EventQueue=self._EventQueue,
             SendMessage=self.SendChat,
+            SendWhisper=self.SendWhisper,
             HeaderLines=[
                 f"Host IP: {self._HostIp}",
                 f"Room Number: {self._Port}",

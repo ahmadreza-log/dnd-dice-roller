@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-03
+
+AppData settings, room session log, and private whispers to the DM.
+
+### Added
+
+- **AppData storage** — Settings saved under `%LOCALAPPDATA%\DND-Dice-Roller` (legacy `settings.json` migrated automatically)
+- **Room Log** — Live timestamped session log from the campaign chat window
+- **Whisper to DM** — Players send private messages with `/dm your message` or **Whisper DM**
+- **`paths.py`** — Central per-user data directory helpers
+
+### Fixed
+
+- Room Log window layout, live updates, and readable dice/whisper formatting
+
 ## [1.1.2] - 2026-06-03
 
 Hotfix — restore missing `CampaignHost` class so **Start → As Host** works again.
@@ -80,6 +95,7 @@ First stable release — LAN D&D dice roller with campaign chat.
 - Replaced plain text chat log with scrollable bubble feed
 - Structured dice wire format (`🎲ROLL|…`) for cross-client rendering
 
+[1.2.0]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.2.0
 [1.1.2]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.1.2
 [1.1.1]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ahmadreza-log/dnd-dice-roller/releases/tag/v1.1.0

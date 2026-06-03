@@ -4,12 +4,14 @@ import queue
 import tkinter as tk
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from tkinter import scrolledtext
 
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import BOTH, E, END, EW, NSEW, W, X
+from ttkbootstrap.constants import BOTH, E, END, EW, NSEW, W, X, Y
 
 from dice import DICE_TYPES, MAX_DICE_PER_ROLL, DiceRollResult, DiceRoller
-from network import DM_DISPLAY_NAME, JOIN_ANNOUNCEMENT_SUFFIX
+from network import DM_DISPLAY_NAME, JOIN_ANNOUNCEMENT_SUFFIX, WHISPER_LOG_PREFIX
 from ui import (
     BG_CHAT_LOG,
     BOOT_CHAT_META,
@@ -75,6 +77,14 @@ PRIVATE_ROLL_SCHEME = PlayerColorScheme(
     DiceSep="#b8a8cf",
 )
 
+WHISPER_SCHEME = PlayerColorScheme(
+    Bg="#3d2a4a",
+    Text="#fce8ff",
+    Name="#e8a8ff",
+)
+
+DM_WHISPER_COMMAND = "/dm"
+
 # Rotating palette for adventurers (each pair tested for contrast on #0e1621).
 PLAYER_COLOR_PALETTE: list[PlayerColorScheme] = [
     PlayerColorScheme("#1a3d5c", "#f2f8ff", "#7ec8ff"),
@@ -132,6 +142,34 @@ class ChatLine:
     Body: str
     Roll: DiceRollResult | None = None
     Username: str = ""
+
+
+class RoomSessionLog:
+    """Timestamped plain-text log for the current campaign room."""
+
+    def __init__(self) -> None:
+        self._Entries: list[str] = []
+
+    def Append(self, Message: str) -> None:
+        Text = Message.strip()
+        if not Text:
+            return
+        Stamp = datetime.now().strftime("%H:%M:%S")
+        self._Entries.append(f"[{Stamp}] {Text}")
+
+    @property
+    def Count(self) -> int:
+        return len(self._Entries)
+
+    def EntryAt(self, Index: int) -> str:
+        return self._Entries[Index]
+
+    def Entries(self) -> list[str]:
+        return list(self._Entries)
+
+
+FONT_ROOM_LOG = ("Consolas", 10)
+FG_ROOM_LOG = "#c5d0de"
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +356,8 @@ class ChatBubbleFeed:
 
         Handlers = {
             "chat": self._AppendChat,
+            "whisper_to_dm": self._AppendWhisperToDm,
+            "whisper_from_player": self._AppendWhisperFromPlayer,
             "system": lambda L: self._AppendCenter(
                 L.Body, COLOR_BUBBLE_SYSTEM, COLOR_BUBBLE_SYSTEM_TEXT
             ),
@@ -559,6 +599,51 @@ class ChatBubbleFeed:
         Bubble.Finalize()
         self.ScrollToBottom()
 
+    def _AppendWhisperToDm(self, Line: ChatLine) -> None:
+        Scheme = WHISPER_SCHEME
+        Slot = self._AddRow("right")
+        Bubble = self._MakePlayerBlock(Slot, Line.Username, Scheme, NameSuffix=" → DM")
+        tk.Label(
+            Bubble.Inner,
+            text=f"🔒 {Line.Body}",
+            font=FONT_BUBBLE_TEXT,
+            fg=Scheme.Text,
+            bg=Scheme.Bg,
+            justify="left",
+            anchor="w",
+        ).pack(anchor="w")
+        Bubble.Finalize()
+        self.ScrollToBottom()
+
+    def _AppendWhisperFromPlayer(self, Line: ChatLine) -> None:
+        if not Line.Username:
+            self._AppendCenter(
+                f"🔒 {Line.Body}",
+                WHISPER_SCHEME.Bg,
+                WHISPER_SCHEME.Text,
+            )
+            return
+
+        self._Colors.Register(Line.Username)
+        Slot = self._AddRow("left")
+        Bubble = self._MakePlayerBlock(
+            Slot,
+            Line.Username,
+            WHISPER_SCHEME,
+            NameSuffix=" 🔒",
+        )
+        tk.Label(
+            Bubble.Inner,
+            text=Line.Body,
+            font=FONT_BUBBLE_TEXT,
+            fg=WHISPER_SCHEME.Text,
+            bg=WHISPER_SCHEME.Bg,
+            justify="left",
+            anchor="w",
+        ).pack(anchor="w")
+        Bubble.Finalize()
+        self.ScrollToBottom()
+
 
 # ---------------------------------------------------------------------------
 # Campaign chat window
@@ -582,12 +667,14 @@ class CampaignChatWindow:
         ShouldContinue: Callable[[], bool] | None = None,
         ShowLocalEcho: bool = True,
         PrivateDiceRolls: bool = False,
+        SendWhisper: Callable[[str], None] | None = None,
     ) -> None:
         self._Parent = Parent
         self._Title = Title
         self._Username = Username
         self._EventQueue = EventQueue
         self._SendMessage = SendMessage
+        self._SendWhisper = SendWhisper
         self._HeaderLines = HeaderLines or []
         self._OnLeave = OnLeave
         self._ShouldContinue = ShouldContinue
@@ -595,9 +682,179 @@ class CampaignChatWindow:
         self._PrivateDiceRolls = PrivateDiceRolls
         self._Lines: list[ChatLine] = []
         self._RenderedCount = 0
+        self._SessionLog = RoomSessionLog()
+        self._LogWindow: ttk.Toplevel | None = None
+        self._LogText: tk.Text | None = None
+        self._LogRenderedCount = 0
         self._Window: ttk.Toplevel | None = None
         self._Feed: ChatBubbleFeed | None = None
         self._Entry: ttk.Entry | None = None
+
+    @property
+    def _CanWhisperToDm(self) -> bool:
+        return (
+            self._SendWhisper is not None
+            and self._Username.strip() != DM_DISPLAY_NAME
+        )
+
+    def _IsDmCommand(self, Text: str) -> bool:
+        Text = Text.strip()
+        Lower = Text.lower()
+        Prefix = DM_WHISPER_COMMAND
+        if not Lower.startswith(Prefix):
+            return False
+        if len(Text) == len(Prefix):
+            return True
+        return Text[len(Prefix)] in (" ", ":", "\t")
+
+    def _ParseDmCommand(self, Text: str) -> str:
+        Text = Text.strip()
+        Rest = Text[len(DM_WHISPER_COMMAND) :].strip()
+        if Rest.startswith(":"):
+            Rest = Rest[1:].strip()
+        return Rest
+
+    def _FormatLogMessage(self, Raw: str) -> str:
+        Text = Raw.strip()
+        if not Text:
+            return ""
+
+        if Text.startswith(WHISPER_LOG_PREFIX):
+            Body = Text[len(WHISPER_LOG_PREFIX) :].strip()
+            return f"🔒 whisper {Body}" if Body else "🔒 whisper"
+
+        ParsedRoll = DiceRoller.ParseBracketedMessage(Text)
+        if ParsedRoll is not None:
+            Username, Roll = ParsedRoll
+            return DiceRoller.FormatLogLine(Username, Roll)
+
+        return Text
+
+    def _RecordLog(self, Message: str) -> None:
+        Text = self._FormatLogMessage(Message)
+        if not Text:
+            return
+        self._SessionLog.Append(Text)
+        self._SyncLogWindow()
+
+    def _LogWindowOpen(self) -> bool:
+        return (
+            self._LogWindow is not None
+            and self._LogText is not None
+            and self._LogWindow.winfo_exists()
+        )
+
+    def _ReloadLogWindow(self) -> None:
+        if not self._LogWindowOpen():
+            return
+
+        assert self._LogText is not None
+        Content = "\n".join(self._SessionLog.Entries())
+        self._LogText.configure(state=tk.NORMAL)
+        self._LogText.delete("1.0", tk.END)
+        if Content:
+            self._LogText.insert("1.0", Content + "\n")
+        self._LogText.configure(state=tk.DISABLED)
+        self._LogText.see(tk.END)
+        self._LogRenderedCount = self._SessionLog.Count
+
+    def _SyncLogWindow(self) -> None:
+        if not self._LogWindowOpen():
+            return
+
+        assert self._LogText is not None
+        if self._LogRenderedCount > self._SessionLog.Count:
+            self._ReloadLogWindow()
+            return
+
+        while self._LogRenderedCount < self._SessionLog.Count:
+            Line = self._SessionLog.EntryAt(self._LogRenderedCount)
+            self._LogText.configure(state=tk.NORMAL)
+            self._LogText.insert(tk.END, Line + "\n")
+            self._LogText.configure(state=tk.DISABLED)
+            self._LogRenderedCount += 1
+
+        self._LogText.see(tk.END)
+
+    def _OpenRoomLog(self) -> None:
+        if not self._Window or not self._Window.winfo_exists():
+            return
+
+        if self._LogWindowOpen():
+            self._ReloadLogWindow()
+            self._LogWindow.lift()
+            self._LogWindow.focus_force()
+            return
+
+        LogWin = ttk.Toplevel(self._Window)
+        LogWin.title("Room Log")
+        LogWin.transient(self._Window)
+        LogWin.minsize(480, 360)
+        self._LogWindow = LogWin
+
+        LogWin.grid_columnconfigure(0, weight=1)
+        LogWin.grid_rowconfigure(0, weight=1)
+
+        Body = ttk.Frame(LogWin, padding=(12, 12, 12, 12))
+        Body.grid(row=0, column=0, sticky=NSEW)
+        Body.grid_columnconfigure(0, weight=1)
+        Body.grid_rowconfigure(1, weight=1)
+
+        ttk.Label(
+            Body,
+            text="Session activity for this room (newest at bottom)",
+            font=FONT_UI,
+            bootstyle=BOOT_CHAT_META,
+        ).grid(row=0, column=0, sticky=W, pady=(0, 8))
+
+        LogText = scrolledtext.ScrolledText(
+            Body,
+            wrap=tk.WORD,
+            font=FONT_ROOM_LOG,
+            bg=BG_CHAT_LOG,
+            fg=FG_ROOM_LOG,
+            insertbackground=FG_ROOM_LOG,
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=10,
+            pady=10,
+            height=18,
+            width=72,
+            state=tk.DISABLED,
+        )
+        LogText.grid(row=1, column=0, sticky=NSEW)
+        self._LogText = LogText
+
+        Actions = ttk.Frame(Body)
+        Actions.grid(row=2, column=0, sticky=EW, pady=(10, 0))
+        Actions.grid_columnconfigure(0, weight=1)
+
+        ttk.Button(
+            Actions,
+            text="Close",
+            bootstyle="secondary",
+            command=self._CloseRoomLog,
+            width=10,
+        ).grid(row=0, column=1, sticky=E)
+
+        LogWin.update_idletasks()
+        ParentX = self._Window.winfo_rootx()
+        ParentY = self._Window.winfo_rooty()
+        ParentW = self._Window.winfo_width()
+        LogWin.geometry(f"560x420+{ParentX + max(ParentW - 580, 24)}+{ParentY + 48}")
+        LogWin.protocol("WM_DELETE_WINDOW", self._CloseRoomLog)
+
+        self._LogRenderedCount = 0
+        self._ReloadLogWindow()
+        LogWin.lift()
+        LogWin.focus_force()
+
+    def _CloseRoomLog(self) -> None:
+        if self._LogWindow and self._LogWindow.winfo_exists():
+            self._LogWindow.destroy()
+        self._LogWindow = None
+        self._LogText = None
+        self._LogRenderedCount = 0
 
     def _ParseBracketChat(self, Text: str) -> ChatLine | None:
         if not Text.startswith("[") or "]" not in Text:
@@ -627,6 +884,17 @@ class CampaignChatWindow:
         Text = Raw.strip()
         Lower = Text.lower()
 
+        if Text.startswith(WHISPER_LOG_PREFIX):
+            Body = Text[len(WHISPER_LOG_PREFIX) :].strip()
+            ParsedWhisper = self._ParseBracketChat(Body)
+            if ParsedWhisper is not None:
+                return ChatLine(
+                    "whisper_from_player",
+                    ParsedWhisper.Body,
+                    Username=ParsedWhisper.Username,
+                )
+            return ChatLine("whisper_from_player", Body)
+
         ParsedRoll = DiceRoller.ParseBracketedMessage(Text)
         if ParsedRoll is not None:
             Username, Roll = ParsedRoll
@@ -644,6 +912,22 @@ class CampaignChatWindow:
             return ChatLine("error", Text)
         return ChatLine("system", Text)
 
+    def _ShouldSkipNetworkSessionLog(self, Raw: str) -> bool:
+        """Avoid duplicate log lines already recorded locally."""
+        if not self._ShowLocalEcho:
+            return False
+
+        ParsedRoll = DiceRoller.ParseBracketedMessage(Raw.strip())
+        if ParsedRoll is not None:
+            Username, _Roll = ParsedRoll
+            return Username == self._Username
+
+        ParsedChat = self._ParseBracketChat(Raw.strip())
+        if ParsedChat is not None and ParsedChat.Username == self._Username:
+            return True
+
+        return False
+
     def _DrainNetworkEvents(self) -> None:
         while True:
             try:
@@ -651,6 +935,8 @@ class CampaignChatWindow:
             except queue.Empty:
                 break
             self._Lines.append(self._ClassifyIncoming(Raw))
+            if not self._ShouldSkipNetworkSessionLog(Raw):
+                self._RecordLog(Raw)
 
     def _AppendNewLines(self) -> None:
         if not self._Feed:
@@ -668,6 +954,9 @@ class CampaignChatWindow:
             self._Lines.append(
                 ChatLine(Kind, "", Roll=Roll, Username=self._Username)
             )
+            self._RecordLog(
+                DiceRoller.FormatLogLine(self._Username, Roll, Private=Private)
+            )
         self._AppendNewLines()
 
     def _PublishOutgoing(self, Text: str) -> None:
@@ -675,6 +964,21 @@ class CampaignChatWindow:
         self._SendMessage(Text)
         if self._ShowLocalEcho:
             self._Lines.append(ChatLine("chat", Text, Username=self._Username))
+            self._RecordLog(f"[{self._Username}] {Text}")
+        self._AppendNewLines()
+
+    def _PublishWhisper(self, Text: str) -> None:
+        """Send a private message to the DM; visible only to sender and host."""
+        if not self._CanWhisperToDm or not self._SendWhisper:
+            return
+
+        Text = Text.strip()
+        if not Text:
+            return
+
+        self._SendWhisper(Text)
+        self._Lines.append(ChatLine("whisper_to_dm", Text, Username=self._Username))
+        self._RecordLog(f"🔒 whisper to DM [{self._Username}]: {Text}")
         self._AppendNewLines()
 
     def _PromptDiceCount(self, DiceLabel: str) -> int | None:
@@ -776,6 +1080,91 @@ class CampaignChatWindow:
         Dialog.wait_window()
         return Result[0]
 
+    def _OpenWhisperDialog(self) -> None:
+        if not self._Window or not self._CanWhisperToDm:
+            return
+
+        Dialog = ttk.Toplevel(self._Window)
+        Dialog.title("Whisper to DM")
+        Dialog.transient(self._Window)
+        Dialog.resizable(False, False)
+        Dialog.minsize(420, 240)
+
+        Frame = ttk.Frame(Dialog, padding=20)
+        Frame.pack(fill=BOTH, expand=True)
+        Frame.grid_columnconfigure(0, weight=1)
+
+        ttk.Label(
+            Frame,
+            text="Private message to the Dungeon Master",
+            font=FONT_UI_BOLD,
+            bootstyle=BOOT_CHAT_TITLE,
+        ).grid(row=0, column=0, sticky=W, pady=(0, 4))
+
+        ttk.Label(
+            Frame,
+            text="Only you and the DM will see this message.",
+            font=FONT_UI,
+            bootstyle=BOOT_CHAT_META,
+        ).grid(row=1, column=0, sticky=W, pady=(0, 12))
+
+        Entry = ttk.Entry(Frame, font=FONT_UI, bootstyle="light")
+        Entry.grid(row=2, column=0, sticky=EW, ipady=8)
+
+        Hint = ttk.Label(
+            Frame,
+            text="Enter to send · Esc to cancel",
+            font=FONT_UI,
+            bootstyle=BOOT_CHAT_META,
+        )
+        Hint.grid(row=3, column=0, sticky=W, pady=(8, 0))
+
+        Actions = ttk.Frame(Frame)
+        Actions.grid(row=4, column=0, sticky=EW, pady=(16, 0))
+        Actions.grid_columnconfigure(0, weight=1)
+
+        def Cancel(_event=None) -> None:
+            Dialog.destroy()
+
+        def Submit(_event=None) -> str:
+            Text = Entry.get().strip()
+            if not Text:
+                Hint.configure(text="Write a message first.", bootstyle="danger")
+                return "break"
+            Dialog.destroy()
+            self._PublishWhisper(Text)
+            return "break"
+
+        ttk.Button(
+            Actions,
+            text="Cancel",
+            bootstyle="secondary",
+            command=Cancel,
+            width=10,
+        ).grid(row=0, column=0, sticky=W)
+
+        ttk.Button(
+            Actions,
+            text="Send whisper",
+            bootstyle="info",
+            command=Submit,
+            width=14,
+        ).grid(row=0, column=1, sticky=E)
+
+        Entry.bind("<Return>", Submit)
+        Entry.bind("<KP_Enter>", Submit)
+        Dialog.bind("<Escape>", lambda _e: Cancel())
+        Dialog.protocol("WM_DELETE_WINDOW", Cancel)
+
+        Dialog.update_idletasks()
+        PosX = self._Window.winfo_rootx() + 60
+        PosY = self._Window.winfo_rooty() + 100
+        Dialog.geometry(f"420x240+{PosX}+{PosY}")
+        Dialog.grab_set()
+        Entry.focus_force()
+
+        Dialog.wait_window()
+
     def _RollDice(self, DiceLabel: str, Sides: int) -> None:
         Count = self._PromptDiceCount(DiceLabel)
         if Count is None:
@@ -794,6 +1183,13 @@ class CampaignChatWindow:
         if Text.lower() in ("/quit", "/exit", "/back", "/leave"):
             self._Close()
             return
+        if self._CanWhisperToDm and self._IsDmCommand(Text):
+            WhisperText = self._ParseDmCommand(Text)
+            if WhisperText:
+                self._PublishWhisper(WhisperText)
+            else:
+                self._OpenWhisperDialog()
+            return
         self._PublishOutgoing(Text)
 
     def _Poll(self) -> None:
@@ -806,9 +1202,12 @@ class CampaignChatWindow:
 
         self._DrainNetworkEvents()
         self._AppendNewLines()
+        if self._LogWindowOpen():
+            self._SyncLogWindow()
         self._Window.after(self._PollMs, self._Poll)
 
     def _Close(self) -> None:
+        self._CloseRoomLog()
         if self._Window and self._Window.winfo_exists():
             self._Window.destroy()
         self._Window = None
@@ -863,11 +1262,19 @@ class CampaignChatWindow:
 
         ttk.Button(
             TopBar,
+            text="Room Log",
+            bootstyle="info-outline",
+            command=self._OpenRoomLog,
+            width=10,
+        ).grid(row=0, column=1, sticky=E, padx=(12, 0))
+
+        ttk.Button(
+            TopBar,
             text="Leave chat",
             bootstyle="danger-outline",
             command=self._Close,
             width=12,
-        ).grid(row=0, column=1, sticky=E, padx=(12, 0))
+        ).grid(row=0, column=2, sticky=E, padx=(8, 0))
 
         Header = ttk.Frame(Win, padding=(14, 0, 14, 8))
         Header.grid(row=1, column=0, sticky=EW)
@@ -912,18 +1319,34 @@ class CampaignChatWindow:
         InputRow = ttk.Frame(Win, padding=(12, 8, 12, 14))
         InputRow.grid(row=5, column=0, sticky=EW)
         InputRow.grid_columnconfigure(0, weight=1)
-        InputRow.grid_columnconfigure(1, weight=1)
 
         self._Entry = ttk.Entry(InputRow, font=FONT_UI, bootstyle="light")
         self._Entry.grid(row=0, column=0, sticky=EW, padx=(0, 6), ipady=8)
         self._Entry.bind("<Return>", lambda _e: self._SendCurrent())
+
+        NextColumn = 1
+        if self._CanWhisperToDm:
+            ttk.Button(
+                InputRow,
+                text="Whisper DM",
+                bootstyle="info-outline",
+                command=self._OpenWhisperDialog,
+                width=11,
+            ).grid(row=0, column=NextColumn, sticky=EW, padx=(0, 6), ipady=8)
+            NextColumn += 1
+            ttk.Label(
+                Win,
+                text=f"Tip: type {DM_WHISPER_COMMAND} your message for a private note to the DM",
+                font=FONT_UI,
+                bootstyle=BOOT_CHAT_META,
+            ).grid(row=6, column=0, sticky=W, padx=14, pady=(0, 8))
 
         ttk.Button(
             InputRow,
             text="Send",
             bootstyle="success",
             command=self._SendCurrent,
-        ).grid(row=0, column=1, sticky=EW, ipady=8)
+        ).grid(row=0, column=NextColumn, sticky=EW, ipady=8)
 
         Win.protocol("WM_DELETE_WINDOW", self._Close)
         self._AutoSizeWindow()
@@ -932,7 +1355,11 @@ class CampaignChatWindow:
         """Open chat and block until the window closes."""
         self._DrainNetworkEvents()
         self._BuildWindow()
+        self._RecordLog("Session started.")
+        for Line in self._HeaderLines:
+            self._RecordLog(Line)
         self._Lines.append(ChatLine("system", "You joined the chat."))
+        self._RecordLog("You joined the chat.")
         self._AppendNewLines()
 
         assert self._Window is not None
