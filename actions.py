@@ -48,11 +48,7 @@ class StartAsHostAction(MenuAction):
     def Execute(self) -> bool:
         from network import AUTO_PORT, CampaignHost
 
-        HostUsername = _RequireUsername()
-        if not HostUsername:
-            return True
-
-        Host = CampaignHost(AUTO_PORT, HostUsername)
+        Host = CampaignHost(AUTO_PORT)
         try:
             Host.Start()
             Host.RunSession()

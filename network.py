@@ -10,6 +10,7 @@ ENCODING = "utf-8"
 JOIN_ANNOUNCEMENT_SUFFIX = "Adventurer Joined To Campaign"
 URL_SCHEME = "dnd"
 AUTO_PORT = 0
+DM_DISPLAY_NAME = "Dungeon Master"
 
 
 class NetworkProtocol:
@@ -116,11 +117,11 @@ def GetLanIp() -> str:
 class CampaignHost:
     """TCP server: accepts players and tracks who is connected."""
 
-    def __init__(self, Port: int, HostUsername: str) -> None:
+    def __init__(self, Port: int) -> None:
         # Port 0 lets the OS pick a free local port on the LAN.
         self._Port = Port
         self._LanIp = ""
-        self._HostUsername = HostUsername
+        self._HostUsername = DM_DISPLAY_NAME
         self._ServerSocket: socket.socket | None = None
         self._Players: list[ConnectedPlayer] = []
         self._Lock = threading.Lock()
@@ -285,7 +286,7 @@ class CampaignHost:
                 "Type": "WELCOME",
                 "Role": "PLAYER",
                 "Host": self._HostUsername,
-                "Message": f"Welcome to {self._HostUsername}'s campaign!",
+                "Message": f"Welcome to the {self._HostUsername}'s campaign!",
             }
             self._Send(Player, Welcome)
             self._Send(Player, {"Type": "ROSTER", "Players": self._RosterUsernames()})
@@ -375,6 +376,7 @@ class CampaignHost:
             HeaderLines=HeaderLines,
             OnLeave=self.Stop,
             ShouldContinue=lambda: self._Running,
+            ShowLocalEcho=False,
         )
 
 

@@ -251,6 +251,7 @@ class AppUI:
         HeaderLines: list[str] | None = None,
         OnLeave: Callable[[], None] | None = None,
         ShouldContinue: Callable[[], bool] | None = None,
+        ShowLocalEcho: bool = True,
     ) -> None:
         from chat import CampaignChatWindow
 
@@ -263,4 +264,5 @@ class AppUI:
             HeaderLines=HeaderLines or [],
             OnLeave=OnLeave,
             ShouldContinue=ShouldContinue,
+            ShowLocalEcho=ShowLocalEcho,
         ).Run()

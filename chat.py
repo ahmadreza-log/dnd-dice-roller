@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import BOTH, E, END, EW, NSEW, NS, W, X
 
+from dice import DICE_TYPES, MAX_DICE_PER_ROLL, DiceRoller
 from gui_theme import (
     BG_CHAT_LOG,
     BOOT_CHAT_META,
@@ -15,7 +16,6 @@ from gui_theme import (
     COLOR_ERROR,
     COLOR_JOIN,
     COLOR_LEAVE,
-    COLOR_SELF,
     COLOR_SYSTEM,
     FG_CHAT_DEFAULT,
     FONT_CHAT,
@@ -48,6 +48,7 @@ class CampaignChatWindow:
         HeaderLines: list[str] | None = None,
         OnLeave: Callable[[], None] | None = None,
         ShouldContinue: Callable[[], bool] | None = None,
+        ShowLocalEcho: bool = True,
     ) -> None:
         self._Parent = Parent
         self._Title = Title
@@ -57,6 +58,7 @@ class CampaignChatWindow:
         self._HeaderLines = HeaderLines or []
         self._OnLeave = OnLeave
         self._ShouldContinue = ShouldContinue
+        self._ShowLocalEcho = ShowLocalEcho
         self._Lines: list[ChatLine] = []
         self._RenderedCount = 0
         self._Window: ttk.Toplevel | None = None
@@ -91,8 +93,6 @@ class CampaignChatWindow:
             return f"● {Line.Body}\n"
         if Line.Kind == "leave":
             return f"◌ {Line.Body}\n"
-        if Line.Kind == "self":
-            return f"› You: {Line.Body}\n"
         if Line.Kind == "error":
             return f"! {Line.Body}\n"
         return f"{Line.Body}\n"
@@ -102,7 +102,6 @@ class CampaignChatWindow:
             "join": "join",
             "leave": "leave",
             "chat": "chat",
-            "self": "self",
             "error": "error",
         }.get(Kind, "system")
 
@@ -119,8 +118,119 @@ class CampaignChatWindow:
             self._Log.see(END)
             self._RenderedCount += 1
 
-    def _AddSelfMessage(self, Text: str) -> None:
-        self._Lines.append(ChatLine("self", Text))
+    def _PublishOutgoing(self, Text: str) -> None:
+        """Send to the network; players echo locally as [Username] lines."""
+        self._SendMessage(Text)
+        if self._ShowLocalEcho:
+            self._Lines.append(ChatLine("chat", f"[{self._Username}] {Text}"))
+        self._AppendNewLines()
+
+    def _PromptDiceCount(self, DiceLabel: str) -> int | None:
+        """Ask how many dice to roll; None if cancelled."""
+        if not self._Window:
+            return None
+
+        Dialog = ttk.Toplevel(self._Window)
+        Dialog.title(f"Roll {DiceLabel}")
+        Dialog.transient(self._Window)
+        Dialog.resizable(False, False)
+        Dialog.minsize(340, 220)
+
+        Result: list[int | None] = [None]
+
+        Frame = ttk.Frame(Dialog, padding=20)
+        Frame.pack(fill=BOTH, expand=True)
+        Frame.grid_columnconfigure(0, weight=1)
+
+        Row = 0
+        ttk.Label(
+            Frame,
+            text=f"How many {DiceLabel} dice?",
+            font=FONT_UI_BOLD,
+            bootstyle=BOOT_CHAT_TITLE,
+        ).grid(row=Row, column=0, sticky=W, pady=(0, 8))
+        Row += 1
+
+        InputRow = ttk.Frame(Frame)
+        InputRow.grid(row=Row, column=0, sticky=EW)
+        InputRow.grid_columnconfigure(0, weight=1)
+        InputRow.grid_columnconfigure(1, weight=1)
+        Row += 1
+
+        Entry = ttk.Entry(InputRow, font=FONT_UI, bootstyle="light")
+        Entry.grid(row=0, column=0, sticky=EW, padx=(0, 6), ipady=8)
+        Entry.insert(0, "1")
+
+        def Submit(_event=None) -> str:
+            Raw = Entry.get().strip()
+            if not Raw.isdigit():
+                Hint.configure(text="Please enter a whole number.", bootstyle="danger")
+                return "break"
+            Count = int(Raw)
+            if Count < 1 or Count > MAX_DICE_PER_ROLL:
+                Hint.configure(
+                    text=f"Use a number between 1 and {MAX_DICE_PER_ROLL}.",
+                    bootstyle="danger",
+                )
+                return "break"
+            Result[0] = Count
+            Dialog.destroy()
+            return "break"
+
+        def Cancel(_event=None) -> None:
+            Result[0] = None
+            Dialog.destroy()
+
+        SendBtn = ttk.Button(
+            InputRow,
+            text="Send",
+            bootstyle="success",
+            command=Submit,
+        )
+        SendBtn.grid(row=0, column=1, sticky=EW, ipady=8)
+
+        Hint = ttk.Label(
+            Frame,
+            text=f"Count 1–{MAX_DICE_PER_ROLL} · Enter or Send",
+            font=FONT_UI,
+            bootstyle=BOOT_CHAT_META,
+        )
+        Hint.grid(row=Row, column=0, sticky=W, pady=(8, 0))
+        Row += 1
+
+        ttk.Button(
+            Frame,
+            text="Cancel",
+            bootstyle="secondary",
+            command=Cancel,
+        ).grid(row=Row, column=0, sticky=EW, pady=(14, 0), ipady=6)
+
+        Entry.bind("<Return>", Submit)
+        Entry.bind("<KP_Enter>", Submit)
+        Dialog.bind("<Return>", Submit)
+        Dialog.bind("<KP_Enter>", Submit)
+        Dialog.bind("<Escape>", lambda _e: Cancel())
+        Dialog.protocol("WM_DELETE_WINDOW", Cancel)
+
+        Dialog.update_idletasks()
+        PosX = self._Window.winfo_rootx() + 80
+        PosY = self._Window.winfo_rooty() + 120
+        Dialog.geometry(f"340x220+{PosX}+{PosY}")
+        Dialog.grab_set()
+        Entry.focus_force()
+        Entry.icursor(END)
+        Entry.select_range(0, END)
+
+        Dialog.wait_window()
+        return Result[0]
+
+    def _RollDice(self, DiceLabel: str, Sides: int) -> None:
+        Count = self._PromptDiceCount(DiceLabel)
+        if Count is None:
+            return
+
+        Message = DiceRoller.RollAndFormat(DiceLabel, Sides, Count)
+        self._PublishOutgoing(Message)
 
     def _SendCurrent(self) -> None:
         if not self._Entry:
@@ -132,9 +242,7 @@ class CampaignChatWindow:
         if Text.lower() in ("/quit", "/exit", "/back", "/leave"):
             self._Close()
             return
-        self._SendMessage(Text)
-        self._AddSelfMessage(Text)
-        self._AppendNewLines()
+        self._PublishOutgoing(Text)
 
     def _Poll(self) -> None:
         if not self._Window or not self._Window.winfo_exists():
@@ -167,7 +275,7 @@ class CampaignChatWindow:
         ParentH = max(self._Parent.winfo_height(), 520)
 
         Width = min(max(ParentW, 520), int(ScreenW * 0.92))
-        Height = min(max(ParentH + 60, 560), int(ScreenH * 0.88))
+        Height = min(max(ParentH + 100, 620), int(ScreenH * 0.88))
 
         PosX = max(0, self._Parent.winfo_rootx() + (self._Parent.winfo_width() - Width) // 2)
         PosY = max(0, self._Parent.winfo_rooty() + (self._Parent.winfo_height() - Height) // 2)
@@ -259,17 +367,29 @@ class CampaignChatWindow:
         Log.tag_configure("join", foreground=COLOR_JOIN, font=FONT_UI_BOLD)
         Log.tag_configure("leave", foreground=COLOR_LEAVE)
         Log.tag_configure("chat", foreground=COLOR_CHAT)
-        Log.tag_configure("self", foreground=COLOR_SELF, font=FONT_UI_BOLD)
         Log.tag_configure("error", foreground=COLOR_ERROR, font=FONT_UI_BOLD)
         Log.tag_configure("system", foreground=COLOR_SYSTEM)
         self._Log = Log
 
+        DiceRow = ttk.Frame(Win, padding=(12, 6, 12, 4))
+        DiceRow.grid(row=4, column=0, sticky=EW)
+        for Column, (DiceLabel, Sides) in enumerate(DICE_TYPES):
+            ttk.Button(
+                DiceRow,
+                text=DiceLabel,
+                bootstyle="warning-outline",
+                width=6,
+                command=lambda L=DiceLabel, S=Sides: self._RollDice(L, S),
+            ).grid(row=0, column=Column, padx=3, pady=2, sticky=EW)
+            DiceRow.grid_columnconfigure(Column, weight=1)
+
         InputRow = ttk.Frame(Win, padding=(12, 8, 12, 14))
-        InputRow.grid(row=4, column=0, sticky=EW)
+        InputRow.grid(row=5, column=0, sticky=EW)
         InputRow.grid_columnconfigure(0, weight=1)
+        InputRow.grid_columnconfigure(1, weight=1)
 
         self._Entry = ttk.Entry(InputRow, font=FONT_UI, bootstyle="light")
-        self._Entry.grid(row=0, column=0, sticky=EW, padx=(0, 8), ipady=6)
+        self._Entry.grid(row=0, column=0, sticky=EW, padx=(0, 6), ipady=8)
         self._Entry.bind("<Return>", lambda _e: self._SendCurrent())
 
         ttk.Button(
@@ -277,8 +397,7 @@ class CampaignChatWindow:
             text="Send",
             bootstyle="success",
             command=self._SendCurrent,
-            width=10,
-        ).grid(row=0, column=1, sticky=E)
+        ).grid(row=0, column=1, sticky=EW, ipady=8)
 
         Win.protocol("WM_DELETE_WINDOW", self._Close)
         self._AutoSizeWindow()
