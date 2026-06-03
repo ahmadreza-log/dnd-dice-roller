@@ -127,19 +127,20 @@ class CampaignHost:
         self._Running = False
         self._AcceptThread: threading.Thread | None = None
         self._EventQueue: queue.Queue[str] = queue.Queue()
+        self._Discovery = None
 
     @property
     def Port(self) -> int:
         return self._Port
 
     @property
-    def LanIp(self) -> str:
-        return self._LanIp or GetLanIp()
+    def RoomNumber(self) -> int:
+        """Public room code (same as the TCP port on the LAN)."""
+        return self._Port
 
     @property
-    def InviteUrl(self) -> str:
-        """LAN-only invite link after the server has started."""
-        return BuildInviteUrl(self.LanIp, self._Port)
+    def LanIp(self) -> str:
+        return self._LanIp or GetLanIp()
 
     @property
     def PlayerCount(self) -> int:
@@ -191,13 +192,13 @@ class CampaignHost:
         if Text:
             self._Log(self._FormatChatLine(Username, Text))
 
-    def _RelayChat(self, Username: str, Text: str) -> None:
+    def _RelayChat(self, Username: str, Text: str, Skip: ConnectedPlayer | None = None) -> None:
         """Broadcast chat to all players and show it on the host screen."""
         Text = Text.strip()
         if not Text:
             return
         Payload = {"Type": "CHAT", "Username": Username, "Text": Text}
-        self._Broadcast(Payload)
+        self._Broadcast(Payload, Skip=Skip)
         self._LogChat(Username, Text)
 
     def _HandlePlayerMessage(self, Player: ConnectedPlayer, Message: dict[str, Any]) -> None:
@@ -205,7 +206,7 @@ class CampaignHost:
         if MsgType == "CHAT":
             Username = str(Message.get("Username", Player.Username)).strip() or Player.Username
             Text = str(Message.get("Text", ""))
-            self._RelayChat(Username, Text)
+            self._RelayChat(Username, Text, Skip=Player)
         elif MsgType == "PING":
             self._Send(Player, {"Type": "PONG"})
 
@@ -321,7 +322,16 @@ class CampaignHost:
         self._Running = True
         self._AcceptThread = threading.Thread(target=self._AcceptLoop, daemon=True)
         self._AcceptThread.start()
-        self._Log("Campaign host is online.")
+
+        from discovery import RoomDiscoveryHost
+
+        self._Discovery = RoomDiscoveryHost(
+            self._Port,
+            self._LanIp,
+            self._HostUsername,
+        )
+        self._Discovery.Start()
+        self._Log("Room is open on your local network.")
 
     def Stop(self) -> None:
         """Shut down the server and disconnect all players."""
@@ -344,6 +354,10 @@ class CampaignHost:
                 pass
             self._ServerSocket = None
 
+        if self._Discovery:
+            self._Discovery.Stop()
+            self._Discovery = None
+
         self._Log("Campaign host stopped.")
 
     def RunSession(self) -> None:
@@ -351,18 +365,14 @@ class CampaignHost:
         from chat import CampaignChatRoom
         from terminal import TerminalUI
 
-        InviteUrl = self.InviteUrl
-        PortText = str(self._Port)
-        Copied = TerminalUI.CopyToClipboard(PortText)
+        RoomText = str(self.RoomNumber)
+        Copied = TerminalUI.CopyToClipboard(RoomText)
 
-        HeaderLines = [
-            f"Host IP: {self._LanIp}",
-            f"Port: {PortText}  ({InviteUrl})",
-        ]
+        HeaderLines = [f"Room Number: {RoomText}"]
         if Copied:
-            HeaderLines.append("Port copied to clipboard — players enter this port.")
+            HeaderLines.append("Room number copied — share it on your local network.")
         else:
-            HeaderLines.append(f"Share port {PortText} (Host IP in Settings).")
+            HeaderLines.append(f"Tell players to join room {RoomText}.")
 
         ChatRoom = CampaignChatRoom(
             Title="Campaign Host Chat",
@@ -387,6 +397,7 @@ class CampaignClient:
         self._Running = False
         self._EventQueue: queue.Queue[str] = queue.Queue()
         self._ListenThread: threading.Thread | None = None
+        self._SendLock = threading.Lock()
 
     def _Log(self, Message: str) -> None:
         self._EventQueue.put(Message)
@@ -465,7 +476,9 @@ class CampaignClient:
             return
         try:
             Message = {"Type": "CHAT", "Username": self._Username, "Text": Text}
-            self._Socket.sendall(NetworkProtocol.Encode(Message))
+            Payload = NetworkProtocol.Encode(Message)
+            with self._SendLock:
+                self._Socket.sendall(Payload)
         except OSError:
             self._Log("Connection lost.")
             self._Running = False
@@ -491,7 +504,7 @@ class CampaignClient:
             Username=self._Username,
             EventQueue=self._EventQueue,
             SendMessage=self.SendChat,
-            HeaderLines=[f"Connected to {self._HostIp}:{self._Port}"],
+            HeaderLines=[f"Room Number: {self._Port}"],
             OnLeave=self._Disconnect,
             ShouldContinue=lambda: self._Running,
         )

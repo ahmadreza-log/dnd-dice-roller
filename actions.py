@@ -41,35 +41,8 @@ def _RequireUsername() -> str | None:
     return None
 
 
-def _RequireHostIp() -> str | None:
-    """Return LAN host IP from settings, or prompt once and save."""
-    from settings import UserSettings
-
-    Current = UserSettings.Get()
-    if Current.HostIp:
-        return Current.HostIp
-
-    from network import GetLanIp
-
-    Prompted = TerminalUI.AskText(
-        "Host IP on your network (Settings → Set Host IP)",
-        GetLanIp(),
-    )
-    if Prompted is None:
-        return None
-
-    Prompted = Prompted.strip()
-    if not Prompted:
-        TerminalUI.ShowNotice("Host IP cannot be empty.", "red")
-        return None
-
-    Current.HostIp = Prompted
-    Current.Save()
-    return Current.HostIp
-
-
 class StartAsHostAction(MenuAction):
-    """Start a TCP campaign server and wait for players to connect."""
+    """Create a room on the LAN and wait for adventurers."""
 
     @property
     def Label(self) -> str:
@@ -89,20 +62,18 @@ class StartAsHostAction(MenuAction):
         Host = CampaignHost(AUTO_PORT, HostUsername)
         try:
             Host.Start()
-            from settings import UserSettings
-
-            Settings = UserSettings.Get()
-            Settings.HostIp = Host.LanIp
-            Settings.Save()
             Host.RunSession()
         except OSError as Error:
-            TerminalUI.ShowNotice(f"Could not start host: {Error}", "red")
+            TerminalUI.ShowNotice(f"Could not create room: {Error}", "red")
+        except Exception as Error:
+            Host.Stop()
+            TerminalUI.ShowNotice(f"Room error: {Error}", "red")
 
         return True
 
 
 class StartAsPlayerAction(MenuAction):
-    """Connect to a host campaign on the LAN."""
+    """Join a room on the local network using its room number."""
 
     @property
     def Label(self) -> str:
@@ -113,33 +84,32 @@ class StartAsPlayerAction(MenuAction):
         return "🎲"
 
     def Execute(self) -> bool:
-        from network import CampaignClient, ResolveCampaignConnection
+        from discovery import FindRoomOnLan, ParseRoomNumber
+        from network import CampaignClient
 
         PlayerUsername = _RequireUsername()
         if not PlayerUsername:
             return True
 
-        HostIp = _RequireHostIp()
+        RoomText = TerminalUI.AskText("Enter Room Number", "")
+        if RoomText is None:
+            return True
+
+        RoomNumber = ParseRoomNumber(RoomText)
+        if RoomNumber is None:
+            TerminalUI.ShowNotice("Invalid room number. Example: 54321", "red")
+            return True
+
+        TerminalUI.ShowNotice("Searching for room on local network...", "cyan", 0.8)
+        HostIp = FindRoomOnLan(RoomNumber)
         if not HostIp:
-            return True
-
-        PortText = TerminalUI.AskText(
-            "Campaign port (from host)",
-            "",
-        )
-        if PortText is None:
-            return True
-
-        Parsed = ResolveCampaignConnection(PortText, HostIp)
-        if Parsed is None:
             TerminalUI.ShowNotice(
-                "Invalid port. Example: 54321",
+                f"Room {RoomNumber} not found. Check the number and Wi‑Fi/LAN.",
                 "red",
             )
             return True
 
-        HostIp, Port = Parsed
-        Client = CampaignClient(HostIp, Port, PlayerUsername)
+        Client = CampaignClient(HostIp, RoomNumber, PlayerUsername)
         Client.RunSession()
         return True
 
@@ -228,46 +198,6 @@ class SetUsernameAction(MenuAction):
         return True
 
 
-class SetHostIpAction(MenuAction):
-    """Save the campaign host IPv4 address for port-only joins."""
-
-    @property
-    def Label(self) -> str:
-        return "Set Host IP"
-
-    @property
-    def Icon(self) -> str:
-        return "🌐"
-
-    def Execute(self) -> bool:
-        from network import GetLanIp
-        from settings import UserSettings
-
-        Current = UserSettings.Get()
-        TerminalUI.Clear()
-        questionary.print("")
-        questionary.print("  Set Host IP", style="bold fg:magenta")
-        questionary.print(
-            f"  Current: {Current.HostIpDisplay}",
-            style="fg:#888888 italic",
-        )
-        questionary.print("")
-
-        NewIp = TerminalUI.AskText("Host IP on your network", Current.HostIp or GetLanIp())
-        if NewIp is None:
-            return True
-
-        NewIp = NewIp.strip()
-        if not NewIp:
-            TerminalUI.ShowNotice("Host IP cannot be empty.", "red")
-            return True
-
-        Current.HostIp = NewIp
-        Current.Save()
-        TerminalUI.ShowNotice(f"Host IP saved: {NewIp}", "green")
-        return True
-
-
 class SettingsAction(MenuAction):
     """Application preferences submenu."""
 
@@ -288,10 +218,9 @@ class SettingsAction(MenuAction):
             "Settings",
             [
                 SetUsernameAction(),
-                SetHostIpAction(),
                 BackAction(),
             ],
-            Subtitle=f"User: {Current.UsernameDisplay}  |  Host: {Current.HostIpDisplay}",
+            Subtitle=f"User: {Current.UsernameDisplay}",
         )
         return SettingsMenu.RunUntilBack()
 
